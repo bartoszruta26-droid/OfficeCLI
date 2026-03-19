@@ -356,7 +356,7 @@ public partial class ExcelHandler
                     case "name": table.Name = value; break;
                     case "displayname": table.DisplayName = value; break;
                     case "headerrow": table.HeaderRowCount = IsTruthy(value) ? 1u : 0u; break;
-                    case "totalrow": table.TotalsRowCount = IsTruthy(value) ? 1u : 0u; break;
+                    case "totalrow": table.TotalsRowShown = IsTruthy(value); break;
                     case "style":
                         var styleInfo = table.GetFirstChild<TableStyleInfo>();
                         if (styleInfo != null) styleInfo.Name = value;
