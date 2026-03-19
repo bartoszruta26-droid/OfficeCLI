@@ -865,9 +865,10 @@ public partial class ExcelHandler
                     }
                 }
 
-                // Create ChartPart and build chart
+                // Build chart content BEFORE adding part (invalid type throws, must not leave empty part)
+                var chartSpace = ChartHelper.BuildChartSpace(chartType, chartTitle, categories, seriesData, properties);
                 var chartPart = drawingsPart.AddNewPart<ChartPart>();
-                chartPart.ChartSpace = ChartHelper.BuildChartSpace(chartType, chartTitle, categories, seriesData, properties);
+                chartPart.ChartSpace = chartSpace;
                 chartPart.ChartSpace.Save();
 
                 // Apply deferred properties (axisTitle, dataLabels, etc.) via SetChartProperties

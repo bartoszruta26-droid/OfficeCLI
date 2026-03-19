@@ -542,9 +542,10 @@ public partial class PowerPointHandler
                     throw new ArgumentException("Chart requires data. Use: data=\"Series1:1,2,3;Series2:4,5,6\" " +
                         "or series1=\"Revenue:100,200,300\"");
 
-                // Create ChartPart and build chart
+                // Build chart content BEFORE adding part (invalid type throws, must not leave empty part)
+                var chartSpace = ChartHelper.BuildChartSpace(chartType, chartTitle, categories, seriesData, properties);
                 var chartPart = chartSlidePart.AddNewPart<ChartPart>();
-                chartPart.ChartSpace = ChartHelper.BuildChartSpace(chartType, chartTitle, categories, seriesData, properties);
+                chartPart.ChartSpace = chartSpace;
                 chartPart.ChartSpace.Save();
 
                 // Apply deferred properties (axisTitle, dataLabels, etc.) via SetChartProperties
