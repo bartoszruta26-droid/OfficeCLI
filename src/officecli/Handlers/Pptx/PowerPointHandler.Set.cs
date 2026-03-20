@@ -798,17 +798,11 @@ public partial class PowerPointHandler
                             AutoUnprefixMorphNames(slidePart2);
                         break;
                     case "advancetime" or "advanceaftertime":
-                    {
-                        var trans = FindOrCreateTransition(slide2);
-                        trans.AdvanceAfterTime = value;
+                        SetAdvanceTime(slide2, value);
                         break;
-                    }
                     case "advanceclick" or "advanceonclick":
-                    {
-                        var trans = FindOrCreateTransition(slide2);
-                        trans.AdvanceOnClick = IsTruthy(value);
+                        SetAdvanceClick(slide2, IsTruthy(value));
                         break;
-                    }
                     case "notes":
                     {
                         var notesPart = EnsureNotesSlidePart(slidePart2);
@@ -835,8 +829,6 @@ public partial class PowerPointHandler
                         break;
                 }
             }
-            // Reconcile morph transition with advanceTime/advanceClick
-            ReconcileMorphTransitionAttrs(slide2);
             slide2.Save();
             return unsupported;
         }

@@ -72,11 +72,10 @@ public partial class PowerPointHandler
                     if (transValue.StartsWith("morph", StringComparison.OrdinalIgnoreCase))
                         AutoPrefixMorphNames(newSlidePart);
                 }
-                if (properties.TryGetValue("advancetime", out var advTime))
-                    FindOrCreateTransition(newSlidePart.Slide).AdvanceAfterTime = advTime;
-                if (properties.TryGetValue("advanceclick", out var advClick))
-                    FindOrCreateTransition(newSlidePart.Slide).AdvanceOnClick = IsTruthy(advClick);
-                ReconcileMorphTransitionAttrs(newSlidePart.Slide);
+                if (properties.TryGetValue("advancetime", out var advTime) || properties.TryGetValue("advanceTime", out advTime))
+                    SetAdvanceTime(newSlidePart.Slide, advTime);
+                if (properties.TryGetValue("advanceclick", out var advClick) || properties.TryGetValue("advanceClick", out advClick))
+                    SetAdvanceClick(newSlidePart.Slide, IsTruthy(advClick));
 
                 newSlidePart.Slide.Save();
 
