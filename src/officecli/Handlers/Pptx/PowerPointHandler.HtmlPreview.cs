@@ -1191,7 +1191,8 @@ public partial class PowerPointHandler
         else
         {
             var isHorizontal = chartType.Contains("bar") && !chartType.Contains("column");
-            RenderBarChartSvg(sb, seriesList, categories, seriesColors, margin.left, margin.top, plotW, plotH, isHorizontal);
+            var isStacked = chartType.Contains("stacked") || chartType.Contains("Stacked");
+            RenderBarChartSvg(sb, seriesList, categories, seriesColors, margin.left, margin.top, plotW, plotH, isHorizontal, isStacked);
         }
 
         sb.AppendLine("      </svg>");
@@ -1211,43 +1212,75 @@ public partial class PowerPointHandler
     }
 
     private static void RenderBarChartSvg(StringBuilder sb, List<(string name, double[] values)> series,
-        string[] categories, List<string> colors, int ox, int oy, int pw, int ph, bool horizontal)
+        string[] categories, List<string> colors, int ox, int oy, int pw, int ph, bool horizontal, bool stacked = false)
     {
         var allValues = series.SelectMany(s => s.values).ToArray();
         if (allValues.Length == 0) return;
-        var maxVal = allValues.Max();
-        if (maxVal <= 0) maxVal = 1;
         var catCount = Math.Max(categories.Length, series.Max(s => s.values.Length));
         var serCount = series.Count;
 
+        // For stacked, maxVal = max sum of all series at each category
+        double maxVal;
+        if (stacked)
+        {
+            maxVal = 0;
+            for (int c = 0; c < catCount; c++)
+            {
+                var sum = series.Sum(s => c < s.values.Length ? s.values[c] : 0);
+                if (sum > maxVal) maxVal = sum;
+            }
+        }
+        else
+        {
+            maxVal = allValues.Max();
+        }
+        if (maxVal <= 0) maxVal = 1;
+
         if (horizontal)
         {
-            // Horizontal bar: categories along Y axis, values along X axis
-            var hLabelMargin = 50; // extra left margin for category labels
+            var hLabelMargin = 50;
             var plotOx = ox + hLabelMargin;
             var plotPw = pw - hLabelMargin;
             var groupH = (double)ph / Math.Max(catCount, 1);
-            var barH = groupH * 0.7 / serCount;
+            var barH = stacked ? groupH * 0.7 : groupH * 0.7 / serCount;
             var gap = groupH * 0.15;
+
+            // Gridlines
+            for (int t = 1; t <= 4; t++)
+            {
+                var gx = plotOx + (double)plotPw * t / 4;
+                sb.AppendLine($"        <line x1=\"{gx:0.#}\" y1=\"{oy}\" x2=\"{gx:0.#}\" y2=\"{oy + ph}\" stroke=\"#333\" stroke-width=\"0.5\" stroke-dasharray=\"3,3\"/>");
+            }
 
             // Axis lines
             sb.AppendLine($"        <line x1=\"{plotOx}\" y1=\"{oy}\" x2=\"{plotOx}\" y2=\"{oy + ph}\" stroke=\"#555\" stroke-width=\"1\"/>");
             sb.AppendLine($"        <line x1=\"{plotOx}\" y1=\"{oy + ph}\" x2=\"{plotOx + plotPw}\" y2=\"{oy + ph}\" stroke=\"#555\" stroke-width=\"1\"/>");
 
             // Bars
-            for (int s = 0; s < serCount; s++)
+            for (int c = 0; c < catCount; c++)
             {
-                for (int c = 0; c < series[s].values.Length && c < catCount; c++)
+                double stackX = 0;
+                for (int s = 0; s < serCount; s++)
                 {
-                    var val = series[s].values[c];
+                    var val = c < series[s].values.Length ? series[s].values[c] : 0;
                     var barW = (val / maxVal) * plotPw;
-                    var bx = plotOx;
-                    var by = oy + c * groupH + gap + s * barH;
-                    sb.AppendLine($"        <rect x=\"{bx}\" y=\"{by:0.#}\" width=\"{barW:0.#}\" height=\"{barH:0.#}\" fill=\"{colors[s % colors.Count]}\" opacity=\"0.85\"/>");
+                    if (stacked)
+                    {
+                        var bx = plotOx + (stackX / maxVal) * plotPw;
+                        var by = oy + c * groupH + gap;
+                        sb.AppendLine($"        <rect x=\"{bx:0.#}\" y=\"{by:0.#}\" width=\"{barW:0.#}\" height=\"{barH:0.#}\" fill=\"{colors[s % colors.Count]}\" opacity=\"0.85\"/>");
+                        stackX += val;
+                    }
+                    else
+                    {
+                        var bx = plotOx;
+                        var by = oy + c * groupH + gap + s * barH;
+                        sb.AppendLine($"        <rect x=\"{bx}\" y=\"{by:0.#}\" width=\"{barW:0.#}\" height=\"{barH:0.#}\" fill=\"{colors[s % colors.Count]}\" opacity=\"0.85\"/>");
+                    }
                 }
             }
 
-            // Category labels (left side)
+            // Category labels
             for (int c = 0; c < catCount; c++)
             {
                 var label = c < categories.Length ? categories[c] : "";
@@ -1255,7 +1288,7 @@ public partial class PowerPointHandler
                 sb.AppendLine($"        <text x=\"{plotOx - 4}\" y=\"{ly:0.#}\" fill=\"#999\" font-size=\"9\" text-anchor=\"end\" dominant-baseline=\"middle\">{HtmlEncode(label)}</text>");
             }
 
-            // Value axis labels (bottom)
+            // Value axis labels
             for (int t = 0; t <= 4; t++)
             {
                 var val = maxVal * t / 4;
@@ -1266,29 +1299,46 @@ public partial class PowerPointHandler
         }
         else
         {
-            // Vertical column: categories along X axis, values along Y axis
             var groupW = (double)pw / Math.Max(catCount, 1);
-            var barW = groupW * 0.7 / serCount;
+            var barW = stacked ? groupW * 0.7 : groupW * 0.7 / serCount;
             var gap = groupW * 0.15;
+
+            // Gridlines
+            for (int t = 1; t <= 4; t++)
+            {
+                var gy = oy + ph - (double)ph * t / 4;
+                sb.AppendLine($"        <line x1=\"{ox}\" y1=\"{gy:0.#}\" x2=\"{ox + pw}\" y2=\"{gy:0.#}\" stroke=\"#333\" stroke-width=\"0.5\" stroke-dasharray=\"3,3\"/>");
+            }
 
             // Axis lines
             sb.AppendLine($"        <line x1=\"{ox}\" y1=\"{oy}\" x2=\"{ox}\" y2=\"{oy + ph}\" stroke=\"#555\" stroke-width=\"1\"/>");
             sb.AppendLine($"        <line x1=\"{ox}\" y1=\"{oy + ph}\" x2=\"{ox + pw}\" y2=\"{oy + ph}\" stroke=\"#555\" stroke-width=\"1\"/>");
 
             // Bars
-            for (int s = 0; s < serCount; s++)
+            for (int c = 0; c < catCount; c++)
             {
-                for (int c = 0; c < series[s].values.Length && c < catCount; c++)
+                double stackY = 0;
+                for (int s = 0; s < serCount; s++)
                 {
-                    var val = series[s].values[c];
+                    var val = c < series[s].values.Length ? series[s].values[c] : 0;
                     var barH = (val / maxVal) * ph;
-                    var bx = ox + c * groupW + gap + s * barW;
-                    var by = oy + ph - barH;
-                    sb.AppendLine($"        <rect x=\"{bx:0.#}\" y=\"{by:0.#}\" width=\"{barW:0.#}\" height=\"{barH:0.#}\" fill=\"{colors[s % colors.Count]}\" opacity=\"0.85\"/>");
+                    if (stacked)
+                    {
+                        var bx = ox + c * groupW + gap;
+                        var by = oy + ph - (stackY / maxVal) * ph - barH;
+                        sb.AppendLine($"        <rect x=\"{bx:0.#}\" y=\"{by:0.#}\" width=\"{barW:0.#}\" height=\"{barH:0.#}\" fill=\"{colors[s % colors.Count]}\" opacity=\"0.85\"/>");
+                        stackY += val;
+                    }
+                    else
+                    {
+                        var bx = ox + c * groupW + gap + s * barW;
+                        var by = oy + ph - barH;
+                        sb.AppendLine($"        <rect x=\"{bx:0.#}\" y=\"{by:0.#}\" width=\"{barW:0.#}\" height=\"{barH:0.#}\" fill=\"{colors[s % colors.Count]}\" opacity=\"0.85\"/>");
+                    }
                 }
             }
 
-            // Category labels (bottom)
+            // Category labels
             for (int c = 0; c < catCount; c++)
             {
                 var label = c < categories.Length ? categories[c] : "";
@@ -1296,7 +1346,7 @@ public partial class PowerPointHandler
                 sb.AppendLine($"        <text x=\"{lx:0.#}\" y=\"{oy + ph + 14}\" fill=\"#999\" font-size=\"9\" text-anchor=\"middle\">{HtmlEncode(label)}</text>");
             }
 
-            // Value axis labels (left side)
+            // Value axis labels
             for (int t = 0; t <= 4; t++)
             {
                 var val = maxVal * t / 4;
@@ -1315,6 +1365,13 @@ public partial class PowerPointHandler
         var maxVal = allValues.Max();
         if (maxVal <= 0) maxVal = 1;
         var catCount = Math.Max(categories.Length, series.Max(s => s.values.Length));
+
+        // Gridlines
+        for (int t = 1; t <= 4; t++)
+        {
+            var gy = oy + ph - (double)ph * t / 4;
+            sb.AppendLine($"        <line x1=\"{ox}\" y1=\"{gy:0.#}\" x2=\"{ox + pw}\" y2=\"{gy:0.#}\" stroke=\"#333\" stroke-width=\"0.5\" stroke-dasharray=\"3,3\"/>");
+        }
 
         // Axis lines
         sb.AppendLine($"        <line x1=\"{ox}\" y1=\"{oy}\" x2=\"{ox}\" y2=\"{oy + ph}\" stroke=\"#555\" stroke-width=\"1\"/>");
@@ -1365,6 +1422,8 @@ public partial class PowerPointHandler
         var innerR = r * holeRatio;
         var startAngle = -Math.PI / 2;
 
+        // Render all slices first
+        var labels = new List<(double x, double y, string text)>();
         for (int i = 0; i < values.Length; i++)
         {
             var sliceAngle = 2 * Math.PI * values[i] / total;
@@ -1377,7 +1436,6 @@ public partial class PowerPointHandler
             }
             else if (holeRatio > 0)
             {
-                // Doughnut: arc with inner hole
                 var ox1 = cx + r * Math.Cos(startAngle);
                 var oy1 = cy + r * Math.Sin(startAngle);
                 var ox2 = cx + r * Math.Cos(endAngle);
@@ -1387,7 +1445,6 @@ public partial class PowerPointHandler
                 var ix2 = cx + innerR * Math.Cos(startAngle);
                 var iy2 = cy + innerR * Math.Sin(startAngle);
                 var largeArc = sliceAngle > Math.PI ? 1 : 0;
-                // Outer arc clockwise, line to inner, inner arc counter-clockwise, close
                 sb.AppendLine($"        <path d=\"M {ox1:0.#},{oy1:0.#} A {r:0.#},{r:0.#} 0 {largeArc},1 {ox2:0.#},{oy2:0.#} L {ix1:0.#},{iy1:0.#} A {innerR:0.#},{innerR:0.#} 0 {largeArc},0 {ix2:0.#},{iy2:0.#} Z\" fill=\"{color}\" opacity=\"0.85\"/>");
             }
             else
@@ -1400,17 +1457,21 @@ public partial class PowerPointHandler
                 sb.AppendLine($"        <path d=\"M {cx:0.#},{cy:0.#} L {x1:0.#},{y1:0.#} A {r:0.#},{r:0.#} 0 {largeArc},1 {x2:0.#},{y2:0.#} Z\" fill=\"{color}\" opacity=\"0.85\"/>");
             }
 
-            // Label — position between inner and outer radius for doughnut
+            // Collect label for rendering after all slices
             var midAngle = startAngle + sliceAngle / 2;
             var labelR = holeRatio > 0 ? (r + innerR) / 2 : r * 0.6;
             var lx = cx + labelR * Math.Cos(midAngle);
             var ly = cy + labelR * Math.Sin(midAngle);
             var label = i < categories.Length ? categories[i] : "";
             if (!string.IsNullOrEmpty(label))
-                sb.AppendLine($"        <text x=\"{lx:0.#}\" y=\"{ly:0.#}\" fill=\"white\" font-size=\"9\" text-anchor=\"middle\" dominant-baseline=\"middle\">{HtmlEncode(label)}</text>");
+                labels.Add((lx, ly, label));
 
             startAngle = endAngle;
         }
+
+        // Render labels on top of all slices
+        foreach (var (lx, ly, label) in labels)
+            sb.AppendLine($"        <text x=\"{lx:0.#}\" y=\"{ly:0.#}\" fill=\"white\" font-size=\"9\" font-weight=\"bold\" text-anchor=\"middle\" dominant-baseline=\"middle\">{HtmlEncode(label)}</text>");
     }
 
     private static void RenderAreaChartSvg(StringBuilder sb, List<(string name, double[] values)> series,
