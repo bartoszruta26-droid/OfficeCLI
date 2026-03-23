@@ -10,64 +10,52 @@ namespace OfficeCli.Core;
 /// </summary>
 public static class SkillInstaller
 {
-    private static readonly Dictionary<string, string> SkillResources = new()
-    {
-        ["officecli"] = "OfficeCli.Resources.skill-officecli.md",
-    };
-
     public static void Install(string target)
     {
         switch (target.ToLowerInvariant())
         {
             case "claude" or "claude-code":
-                InstallClaude();
+                InstallTo("Claude Code", Path.Combine(Home, ".claude", "skills", "officecli", "SKILL.md"));
+                break;
+            case "copilot" or "github-copilot":
+                InstallTo("GitHub Copilot", Path.Combine(Home, ".copilot", "skills", "officecli", "SKILL.md"));
+                break;
+            case "codex" or "openai-codex":
+                InstallTo("Codex CLI", Path.Combine(Home, ".agents", "skills", "officecli", "SKILL.md"));
+                break;
+            case "all":
+                Install("claude");
+                Install("copilot");
+                Install("codex");
                 break;
             default:
                 Console.Error.WriteLine($"Unknown target: {target}");
-                Console.Error.WriteLine("Supported: claude (Claude Code)");
+                Console.Error.WriteLine("Supported: claude, copilot, codex, all");
                 break;
         }
     }
 
-    private static void InstallClaude()
+    private static void InstallTo(string displayName, string targetPath)
     {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var skillsDir = Path.Combine(home, ".claude", "skills");
-        var installed = new List<string>();
-
-        foreach (var (skillName, resourceName) in SkillResources)
+        var content = LoadEmbeddedResource("OfficeCli.Resources.skill-officecli.md");
+        if (content == null)
         {
-            var content = LoadEmbeddedResource(resourceName);
-            if (content == null)
-            {
-                Console.Error.WriteLine($"  Warning: embedded resource not found for skill '{skillName}'");
-                continue;
-            }
-
-            var targetDir = Path.Combine(skillsDir, skillName);
-            Directory.CreateDirectory(targetDir);
-            var targetPath = Path.Combine(targetDir, "SKILL.md");
-
-            // Check if already up to date
-            if (File.Exists(targetPath) && File.ReadAllText(targetPath) == content)
-            {
-                Console.WriteLine($"  {skillName}: already up to date");
-                installed.Add(skillName);
-                continue;
-            }
-
-            File.WriteAllText(targetPath, content);
-            Console.WriteLine($"  {skillName}: installed");
-            installed.Add(skillName);
+            Console.Error.WriteLine($"  {displayName}: embedded resource not found");
+            return;
         }
 
-        if (installed.Count > 0)
+        if (File.Exists(targetPath) && File.ReadAllText(targetPath) == content)
         {
-            Console.WriteLine();
-            Console.WriteLine($"Skills installed to {skillsDir}");
-            Console.WriteLine("These skills are now available in all Claude Code projects.");
+            Console.WriteLine($"  {displayName}: already up to date ({targetPath})");
+            return;
         }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+        File.WriteAllText(targetPath, content);
+        Console.WriteLine($"  {displayName}: installed ({targetPath})");
     }
+
+    private static string Home => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
     private static string? LoadEmbeddedResource(string resourceName)
     {
