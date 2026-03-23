@@ -105,8 +105,8 @@ public class ExcelStyleManager
         // Map "font" shorthand to font.name
         if (styleProps.TryGetValue("font", out var fontShorthand))
             fontProps["name"] = fontShorthand;
-        // Map shorthand keys (bold, italic, strike, underline) to font.* equivalents
-        foreach (var shortKey in new[] { "bold", "italic", "strike", "underline" })
+        // Map shorthand keys (bold, italic, strike, underline, superscript, subscript) to font.* equivalents
+        foreach (var shortKey in new[] { "bold", "italic", "strike", "underline", "superscript", "subscript" })
         {
             if (styleProps.TryGetValue(shortKey, out var shortVal))
                 fontProps[shortKey] = shortVal;
@@ -206,10 +206,24 @@ public class ExcelStyleManager
             applyAlignment = true;
         }
 
+        // --- protection ---
+        Protection? protection = baseXf.Protection?.CloneNode(true) as Protection;
+        bool applyProtection = baseXf.ApplyProtection?.Value ?? false;
+        if (styleProps.TryGetValue("locked", out var lockedVal) ||
+            styleProps.TryGetValue("formulahidden", out var fhVal))
+        {
+            protection ??= new Protection();
+            if (styleProps.TryGetValue("locked", out var lv))
+                protection.Locked = IsTruthy(lv);
+            if (styleProps.TryGetValue("formulahidden", out var fv))
+                protection.Hidden = IsTruthy(fv);
+            applyProtection = true;
+        }
+
         // --- find or create CellFormat ---
         uint xfIndex = FindOrCreateCellFormat(cellFormats,
-            numFmtId, fontId, fillId, borderId, alignment,
-            applyNumFmt, applyFont, applyFill, applyBorder, applyAlignment);
+            numFmtId, fontId, fillId, borderId, alignment, protection,
+            applyNumFmt, applyFont, applyFill, applyBorder, applyAlignment, applyProtection);
 
         stylesheet.Save();
         return xfIndex;
@@ -223,8 +237,10 @@ public class ExcelStyleManager
         var lower = key.ToLowerInvariant();
         return lower is "numfmt" or "fill" or "bgcolor" or "font" or "border"
             or "bold" or "italic" or "strike" or "underline"
+            or "superscript" or "subscript"
             or "wrap" or "wraptext" or "numberformat" or "format" or "halign" or "valign"
             or "rotation" or "indent" or "shrinktofit"
+            or "locked" or "formulahidden"
             || lower.StartsWith("font.")
             || lower.StartsWith("alignment.")
             || lower.StartsWith("border.");
@@ -307,6 +323,21 @@ public class ExcelStyleManager
         string? underline = fontProps.TryGetValue("underline", out var uVal)
             ? (uVal.ToLowerInvariant() is "double" ? "double" : (IsTruthy(uVal) || uVal.ToLowerInvariant() == "single" ? "single" : null))
             : (baseFont.Underline != null ? (baseFont.Underline.Val?.InnerText == "double" ? "double" : "single") : null);
+        // vertAlign: superscript / subscript / null (baseline)
+        var baseVertAlign = baseFont.GetFirstChild<VerticalTextAlignment>();
+        string? vertAlign;
+        if (fontProps.TryGetValue("superscript", out var supVal))
+            vertAlign = IsTruthy(supVal) ? "superscript" : null;
+        else if (fontProps.TryGetValue("subscript", out var subVal))
+            vertAlign = IsTruthy(subVal) ? "subscript" : null;
+        else if (fontProps.TryGetValue("vertalign", out var vaVal))
+            vertAlign = vaVal.ToLowerInvariant() is "superscript" or "subscript" ? vaVal.ToLowerInvariant() : null;
+        else if (baseVertAlign?.Val?.Value == VerticalAlignmentRunValues.Superscript)
+            vertAlign = "superscript";
+        else if (baseVertAlign?.Val?.Value == VerticalAlignmentRunValues.Subscript)
+            vertAlign = "subscript";
+        else
+            vertAlign = null;
         double size;
         if (fontProps.TryGetValue("size", out var szVal))
         {
@@ -325,12 +356,12 @@ public class ExcelStyleManager
         int idx = 0;
         foreach (var f in fonts.Elements<Font>())
         {
-            if (FontMatches(f, bold, italic, strike, underline, size, name, color))
+            if (FontMatches(f, bold, italic, strike, underline, vertAlign, size, name, color))
                 return (uint)idx;
             idx++;
         }
 
-        // Create new font (element order matters: b, i, strike, u, sz, color, name)
+        // Create new font (element order: b, i, strike, u, vertAlign, sz, color, name)
         var newFont = new Font();
         if (bold) newFont.Append(new Bold());
         if (italic) newFont.Append(new Italic());
@@ -341,6 +372,15 @@ public class ExcelStyleManager
             if (underline == "double")
                 ul.Val = UnderlineValues.Double;
             newFont.Append(ul);
+        }
+        if (vertAlign != null)
+        {
+            newFont.Append(new VerticalTextAlignment
+            {
+                Val = vertAlign == "superscript"
+                    ? VerticalAlignmentRunValues.Superscript
+                    : VerticalAlignmentRunValues.Subscript
+            });
         }
         newFont.Append(new FontSize { Val = size });
         if (color != null)
@@ -354,7 +394,7 @@ public class ExcelStyleManager
     }
 
     private static bool FontMatches(Font font, bool bold, bool italic, bool strike,
-        string? underline, double size, string name, string? color)
+        string? underline, string? vertAlign, double size, string name, string? color)
     {
         if ((font.Bold != null) != bold) return false;
         if ((font.Italic != null) != italic) return false;
@@ -365,6 +405,13 @@ public class ExcelStyleManager
             var fontUlType = font.Underline.Val?.InnerText == "double" ? "double" : "single";
             if (fontUlType != underline) return false;
         }
+        // vertAlign comparison
+        var fontVA = font.GetFirstChild<VerticalTextAlignment>();
+        string? fontVertAlign = fontVA?.Val?.Value == VerticalAlignmentRunValues.Superscript ? "superscript"
+            : fontVA?.Val?.Value == VerticalAlignmentRunValues.Subscript ? "subscript"
+            : null;
+        if (fontVertAlign != vertAlign) return false;
+
         if (Math.Abs((font.FontSize?.Val?.Value ?? 11) - size) > 0.01) return false;
         if (!string.Equals(font.FontName?.Val?.Value, name, StringComparison.OrdinalIgnoreCase)) return false;
 
@@ -675,8 +722,8 @@ public class ExcelStyleManager
     // ==================== CellFormat ====================
 
     private static uint FindOrCreateCellFormat(CellFormats cellFormats,
-        uint numFmtId, uint fontId, uint fillId, uint borderId, Alignment? alignment,
-        bool applyNumFmt, bool applyFont, bool applyFill, bool applyBorder, bool applyAlignment)
+        uint numFmtId, uint fontId, uint fillId, uint borderId, Alignment? alignment, Protection? protection,
+        bool applyNumFmt, bool applyFont, bool applyFill, bool applyBorder, bool applyAlignment, bool applyProtection)
     {
         // Search for existing match
         int idx = 0;
@@ -686,7 +733,8 @@ public class ExcelStyleManager
                 (xf.FontId?.Value ?? 0) == fontId &&
                 (xf.FillId?.Value ?? 0) == fillId &&
                 (xf.BorderId?.Value ?? 0) == borderId &&
-                AlignmentMatches(xf.Alignment, alignment))
+                AlignmentMatches(xf.Alignment, alignment) &&
+                ProtectionMatches(xf.Protection, protection))
                 return (uint)idx;
             idx++;
         }
@@ -708,11 +756,24 @@ public class ExcelStyleManager
             newXf.ApplyAlignment = true;
             newXf.Append(alignment);
         }
+        if (applyProtection && protection != null)
+        {
+            newXf.ApplyProtection = true;
+            newXf.Append(protection);
+        }
 
         cellFormats.Append(newXf);
         cellFormats.Count = (uint)cellFormats.Elements<CellFormat>().Count();
 
         return (uint)(cellFormats.Elements<CellFormat>().Count() - 1);
+    }
+
+    private static bool ProtectionMatches(Protection? a, Protection? b)
+    {
+        if (a == null && b == null) return true;
+        if (a == null || b == null) return false;
+        return (a.Locked?.Value ?? true) == (b.Locked?.Value ?? true) &&
+               (a.Hidden?.Value ?? false) == (b.Hidden?.Value ?? false);
     }
 
     private static bool AlignmentMatches(Alignment? a, Alignment? b)

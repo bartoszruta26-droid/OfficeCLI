@@ -59,7 +59,7 @@ public partial class ExcelHandler : IDocumentHandler
         {
             var drawSheetName = drawingMatch.Groups[1].Value;
             var drawWs = FindWorksheet(drawSheetName)
-                ?? throw new ArgumentException($"Sheet not found: {drawSheetName}");
+                ?? throw SheetNotFoundException(drawSheetName);
             var dp = drawWs.DrawingsPart
                 ?? throw new ArgumentException($"Sheet '{drawSheetName}' has no drawings");
             return dp.WorksheetDrawing!.OuterXml;
@@ -72,7 +72,7 @@ public partial class ExcelHandler : IDocumentHandler
             var chartSheetName = chartMatch.Groups[1].Value;
             var chartIdx = int.Parse(chartMatch.Groups[2].Value);
             var chartWs = FindWorksheet(chartSheetName)
-                ?? throw new ArgumentException($"Sheet not found: {chartSheetName}");
+                ?? throw SheetNotFoundException(chartSheetName);
             var chartPart = GetChartPart(chartWs, chartIdx);
             return chartPart.ChartSpace!.OuterXml;
         }
@@ -167,7 +167,7 @@ public partial class ExcelHandler : IDocumentHandler
             {
                 var drawSheetName = drawingMatch.Groups[1].Value;
                 var drawWs = FindWorksheet(drawSheetName)
-                    ?? throw new ArgumentException($"Sheet not found: {drawSheetName}");
+                    ?? throw SheetNotFoundException(drawSheetName);
                 var dp = drawWs.DrawingsPart
                     ?? throw new ArgumentException($"Sheet '{drawSheetName}' has no drawings");
                 rootElement = dp.WorksheetDrawing!;
@@ -181,7 +181,7 @@ public partial class ExcelHandler : IDocumentHandler
                 var chartSheetName = chartMatch.Groups[1].Value;
                 var chartIdx = int.Parse(chartMatch.Groups[2].Value);
                 var chartWs = FindWorksheet(chartSheetName)
-                    ?? throw new ArgumentException($"Sheet not found: {chartSheetName}");
+                    ?? throw SheetNotFoundException(chartSheetName);
                 var chartPart = GetChartPart(chartWs, chartIdx);
                 rootElement = chartPart.ChartSpace!;
             }
