@@ -201,7 +201,10 @@ public partial class PowerPointHandler
         }
         else if (chartType.Contains("radar"))
         {
-            RenderRadarChartSvg(sb, seriesList, categories, seriesColors, svgW, chartSvgH);
+            // Read category axis label font size from OOXML
+            var radarCatFontSize = catAxis?.Descendants<Drawing.RunProperties>().FirstOrDefault()?.FontSize;
+            var radarLabelPx = radarCatFontSize?.HasValue == true ? (int)(radarCatFontSize.Value / 100.0 * 96 / 72) : 0;
+            RenderRadarChartSvg(sb, seriesList, categories, seriesColors, svgW, chartSvgH, radarLabelPx);
         }
         else if (chartType == "bubble")
         {
@@ -796,7 +799,8 @@ public partial class PowerPointHandler
     }
 
     private void RenderRadarChartSvg(StringBuilder sb, List<(string name, double[] values)> series,
-        string[] categories, List<string> colors, int svgW, int svgH)
+        string[] categories, List<string> colors, int svgW, int svgH,
+        int catLabelFontSize = 0)
     {
         var catCount = Math.Max(categories.Length, series.Max(s => s.values.Length));
         if (catCount < 3) return;
@@ -805,6 +809,7 @@ public partial class PowerPointHandler
         var maxVal = allValues.Max();
         if (maxVal <= 0) maxVal = 1;
 
+        var labelSize = catLabelFontSize > 0 ? catLabelFontSize : 9;
         var cx = svgW / 2.0;
         var cy = svgH / 2.0;
         var r = Math.Min(svgW, svgH) * 0.30;
@@ -861,7 +866,7 @@ public partial class PowerPointHandler
             var lx = cx + (r + 15) * Math.Cos(angle);
             var ly = cy + (r + 15) * Math.Sin(angle);
             var anchor = Math.Abs(Math.Cos(angle)) < 0.1 ? "middle" : (Math.Cos(angle) > 0 ? "start" : "end");
-            sb.AppendLine($"        <text x=\"{lx:0.#}\" y=\"{ly:0.#}\" fill=\"{_chartCatColor}\" font-size=\"9\" text-anchor=\"{anchor}\" dominant-baseline=\"middle\">{HtmlEncode(label)}</text>");
+            sb.AppendLine($"        <text x=\"{lx:0.#}\" y=\"{ly:0.#}\" fill=\"{_chartCatColor}\" font-size=\"{labelSize}\" text-anchor=\"{anchor}\" dominant-baseline=\"middle\">{HtmlEncode(label)}</text>");
         }
     }
 
@@ -914,7 +919,10 @@ public partial class PowerPointHandler
         if (maxY <= minY) maxY = minY + 1;
         var maxSize = allSize.Count > 0 ? allSize.Max() : 1;
         if (maxSize <= 0) maxSize = 1;
-        var maxRadius = Math.Min(pw, ph) * 0.08;
+        // Read bubble scale from OOXML (default 100%)
+        var bubbleScaleEl = plotArea.Descendants<DocumentFormat.OpenXml.Drawing.Charts.BubbleScale>().FirstOrDefault();
+        var bubbleScale = bubbleScaleEl?.Val?.HasValue == true ? bubbleScaleEl.Val.Value / 100.0 : 1.0;
+        var maxRadius = Math.Min(pw, ph) * 0.08 * bubbleScale;
 
         // Axis lines
         sb.AppendLine($"        <line x1=\"{ox}\" y1=\"{oy}\" x2=\"{ox}\" y2=\"{oy + ph}\" stroke=\"{_chartAxisLineColor}\" stroke-width=\"1\"/>");

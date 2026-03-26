@@ -331,7 +331,7 @@ public partial class PowerPointHandler
         var fsStr = string.Join(" ", fillStrokeAttrs);
 
         // Draw shape based on geometry type
-        var polygonPoints = GetPresetPolygonPoints(presetName, w, h);
+        var polygonPoints = GetPresetPolygonPoints(presetName, w, h, presetGeom);
 
         // CustomGeometry fallback — convert path to SVG polygon
         if (polygonPoints == null && presetName == "rect")
@@ -357,15 +357,18 @@ public partial class PowerPointHandler
         }
         else if (presetName is "donut" or "noSmoking")
         {
-            // Donut: outer circle + inner circle (hole)
-            var innerR = Math.Min(w, h) * 0.3;
-            sb.Append($"<ellipse cx=\"{w / 2:0.##}\" cy=\"{h / 2:0.##}\" rx=\"{w / 2:0.##}\" ry=\"{h / 2:0.##}\" {fsStr}/>");
-            sb.Append($"<ellipse cx=\"{w / 2:0.##}\" cy=\"{h / 2:0.##}\" rx=\"{innerR:0.##}\" ry=\"{innerR:0.##}\" fill=\"white\"/>");
+            // Donut: hole size from adj value (default 50000 = 50% of outer radius)
+            var donutAdj = ReadAdjValue(presetGeom, 0, 50000) / 100000.0;
+            var outerRx = w / 2; var outerRy = h / 2;
+            var innerRx = outerRx * donutAdj; var innerRy = outerRy * donutAdj;
+            sb.Append($"<ellipse cx=\"{w / 2:0.##}\" cy=\"{h / 2:0.##}\" rx=\"{outerRx:0.##}\" ry=\"{outerRy:0.##}\" {fsStr}/>");
+            sb.Append($"<ellipse cx=\"{w / 2:0.##}\" cy=\"{h / 2:0.##}\" rx=\"{innerRx:0.##}\" ry=\"{innerRy:0.##}\" fill=\"white\"/>");
         }
         else if (presetName is "can" or "cylinder")
         {
-            // Cylinder: rect body + top/bottom ellipses
-            var capH = h * 0.12;
+            // Cylinder: cap height from adj value (default 25000 = 25% of height)
+            var canAdj = ReadAdjValue(presetGeom, 0, 25000) / 100000.0;
+            var capH = h * canAdj;
             sb.Append($"<rect y=\"{capH:0.##}\" width=\"{w:0.##}\" height=\"{h - capH * 2:0.##}\" {fsStr}/>");
             sb.Append($"<ellipse cx=\"{w / 2:0.##}\" cy=\"{capH:0.##}\" rx=\"{w / 2:0.##}\" ry=\"{capH:0.##}\" {fsStr}/>");
             sb.Append($"<ellipse cx=\"{w / 2:0.##}\" cy=\"{h - capH:0.##}\" rx=\"{w / 2:0.##}\" ry=\"{capH:0.##}\" {fsStr}/>");
@@ -1281,7 +1284,7 @@ public partial class PowerPointHandler
     /// <summary>
     /// Returns SVG polygon points string for common preset shapes, or null if not a polygon shape.
     /// </summary>
-    private static string? GetPresetPolygonPoints(string preset, double w, double h)
+    private static string? GetPresetPolygonPoints(string preset, double w, double h, Drawing.PresetGeometry? presetGeom = null)
     {
         return preset switch
         {
@@ -1304,13 +1307,13 @@ public partial class PowerPointHandler
             "decagon" => BuildRegularPolygon(10, w, h),
             "dodecagon" => BuildRegularPolygon(12, w, h),
 
-            // Stars
-            "star4" => BuildStar(4, w, h),
-            "star5" => BuildStar(5, w, h),
-            "star6" => BuildStar(6, w, h),
-            "star8" => BuildStar(8, w, h),
-            "star10" => BuildStar(10, w, h),
-            "star12" => BuildStar(12, w, h),
+            // Stars — inner radius from adj (default varies by star type)
+            "star4" => BuildStar(4, w, h, ReadAdjValue(presetGeom, 0, 50000) / 100000.0),
+            "star5" => BuildStar(5, w, h, ReadAdjValue(presetGeom, 0, 19098) / 100000.0),
+            "star6" => BuildStar(6, w, h, ReadAdjValue(presetGeom, 0, 28868) / 100000.0),
+            "star8" => BuildStar(8, w, h, ReadAdjValue(presetGeom, 0, 38268) / 100000.0),
+            "star10" => BuildStar(10, w, h, ReadAdjValue(presetGeom, 0, 38268) / 100000.0),
+            "star12" => BuildStar(12, w, h, ReadAdjValue(presetGeom, 0, 38268) / 100000.0),
 
             // Arrows
             "rightArrow" => $"0,{h * 0.25:0.##} {w * 0.7:0.##},{h * 0.25:0.##} {w * 0.7:0.##},0 {w:0.##},{h / 2:0.##} {w * 0.7:0.##},{h:0.##} {w * 0.7:0.##},{h * 0.75:0.##} 0,{h * 0.75:0.##}",
@@ -1390,11 +1393,11 @@ public partial class PowerPointHandler
         return string.Join(" ", points);
     }
 
-    private static string BuildStar(int pointCount, double w, double h)
+    private static string BuildStar(int pointCount, double w, double h, double innerRatio = 0.4)
     {
         var points = new List<string>();
         var outerR = Math.Min(w, h) / 2;
-        var innerR = outerR * 0.4;
+        var innerR = outerR * innerRatio;
         for (int i = 0; i < pointCount * 2; i++)
         {
             var angle = -Math.PI / 2 + Math.PI * i / pointCount;
@@ -1804,6 +1807,27 @@ public partial class PowerPointHandler
     }
 
     // ==================== SVG Helpers ====================
+
+    /// <summary>
+    /// Read an adjustment value from PresetGeometry's AdjustValueList.
+    /// OOXML stores adj values as "val NNNNN" in ShapeGuide formulas.
+    /// </summary>
+    private static long ReadAdjValue(Drawing.PresetGeometry? presetGeom, int index, long defaultValue)
+    {
+        var avList = presetGeom?.GetFirstChild<Drawing.AdjustValueList>();
+        if (avList == null) return defaultValue;
+
+        var guides = avList.Elements<Drawing.ShapeGuide>().ToList();
+        if (index >= guides.Count) return defaultValue;
+
+        var formula = guides[index].Formula?.Value;
+        if (formula != null && formula.StartsWith("val "))
+        {
+            if (long.TryParse(formula.AsSpan(4), out var parsed))
+                return parsed;
+        }
+        return defaultValue;
+    }
 
     private static string SvgEncode(string text)
     {
