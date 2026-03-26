@@ -261,12 +261,55 @@ public partial class ExcelHandler
             if (cmtList != null && !cmtList.HasChildren)
             {
                 worksheet.DeletePart(commentsPart);
-                // Also clean up VmlDrawingPart and legacyDrawing reference
+                // Clean up VmlDrawingPart only if it contains no non-comment shapes (e.g. form controls)
                 var vmlPart = worksheet.VmlDrawingParts.FirstOrDefault();
                 if (vmlPart != null)
-                    worksheet.DeletePart(vmlPart);
-                var legacyDrawing = GetSheet(worksheet).Elements<LegacyDrawing>().FirstOrDefault();
-                legacyDrawing?.Remove();
+                {
+                    bool hasNonCommentShapes = false;
+                    try
+                    {
+                        using var stream = vmlPart.GetStream(System.IO.FileMode.Open, System.IO.FileAccess.Read);
+                        var vmlDoc = System.Xml.Linq.XDocument.Load(stream);
+                        var vNs = (System.Xml.Linq.XNamespace)"urn:schemas-microsoft-com:vml";
+                        var xNs = (System.Xml.Linq.XNamespace)"urn:schemas-microsoft-com:office:excel";
+                        var shapes = vmlDoc.Descendants(vNs + "shape").ToList();
+                        hasNonCommentShapes = shapes.Any(s =>
+                        {
+                            var clientData = s.Element(xNs + "ClientData");
+                            return clientData == null ||
+                                   clientData.Attribute("ObjectType")?.Value != "Note";
+                        });
+                    }
+                    catch { }
+
+                    if (!hasNonCommentShapes)
+                    {
+                        worksheet.DeletePart(vmlPart);
+                        var legacyDrawing = GetSheet(worksheet).Elements<LegacyDrawing>().FirstOrDefault();
+                        legacyDrawing?.Remove();
+                    }
+                    else
+                    {
+                        // Remove only comment shapes from VML, keep form controls
+                        try
+                        {
+                            using var stream = vmlPart.GetStream(System.IO.FileMode.Open, System.IO.FileAccess.ReadWrite);
+                            var vmlDoc = System.Xml.Linq.XDocument.Load(stream);
+                            var vNs2 = (System.Xml.Linq.XNamespace)"urn:schemas-microsoft-com:vml";
+                            var xNs2 = (System.Xml.Linq.XNamespace)"urn:schemas-microsoft-com:office:excel";
+                            var commentShapes = vmlDoc.Descendants(vNs2 + "shape")
+                                .Where(s =>
+                                {
+                                    var cd = s.Element(xNs2 + "ClientData");
+                                    return cd != null && cd.Attribute("ObjectType")?.Value == "Note";
+                                }).ToList();
+                            foreach (var cs in commentShapes) cs.Remove();
+                            stream.SetLength(0);
+                            vmlDoc.Save(stream);
+                        }
+                        catch { }
+                    }
+                }
             }
             else
             {
