@@ -69,6 +69,32 @@ public partial class WordHandler
             return null;
         }
 
+        // Handle TOC removal
+        if (parts.Count == 1 && parts[0].Name.ToLowerInvariant() == "toc")
+        {
+            var mainPart = _doc.MainDocumentPart
+                ?? throw new InvalidOperationException("MainDocumentPart not found");
+            var tocIdx = parts[0].Index ?? 1;
+            var tocParas = FindTocParagraphs();
+            if (tocIdx < 1 || tocIdx > tocParas.Count)
+                throw new ArgumentException($"TOC {tocIdx} not found (total: {tocParas.Count})");
+
+            var tocPara = tocParas[tocIdx - 1];
+
+            // Also remove preceding TOCHeading title paragraph if present
+            var prevSibling = tocPara.PreviousSibling<Paragraph>();
+            if (prevSibling != null)
+            {
+                var styleId = prevSibling.ParagraphProperties?.ParagraphStyleId?.Val?.Value;
+                if (styleId != null && styleId.Equals("TOCHeading", StringComparison.OrdinalIgnoreCase))
+                    prevSibling.Remove();
+            }
+
+            tocPara.Remove();
+            mainPart.Document?.Save();
+            return null;
+        }
+
         // Handle footnote/endnote removal
         if (parts.Count == 1 && parts[0].Name.ToLowerInvariant() == "footnote")
         {
