@@ -504,8 +504,7 @@ public partial class WordHandler
             return;
         }
 
-        // Collect content: iterate all child elements to handle multiple breaks, tabs, text, symbols
-        // Check for footnote/endnote reference — render as superscript number
+        // Footnote/endnote reference — render superscript number (don't return, run may also have text)
         var fnRef = run.GetFirstChild<FootnoteReference>();
         if (fnRef?.Id?.HasValue == true && fnRef.Id.Value > 0)
         {
@@ -513,7 +512,6 @@ public partial class WordHandler
             _footnoteRefs?.Add(fnId);
             var fnNum = _footnoteRefs?.Count ?? fnId;
             sb.Append($"<sup class=\"fn-ref\"><a href=\"#fn{fnId}\" id=\"fnref{fnId}\">{fnNum}</a></sup>");
-            return;
         }
         var enRef = run.GetFirstChild<EndnoteReference>();
         if (enRef?.Id?.HasValue == true && enRef.Id.Value > 0)
@@ -522,8 +520,10 @@ public partial class WordHandler
             _endnoteRefs?.Add(enId);
             var enNum = _endnoteRefs?.Count ?? enId;
             sb.Append($"<sup class=\"en-ref\"><a href=\"#en{enId}\" id=\"enref{enId}\">{enNum}</a></sup>");
-            return;
         }
+        // Skip FootnoteReferenceMark / EndnoteReferenceMark (auto-number inside footnote body)
+        if (run.GetFirstChild<FootnoteReferenceMark>() != null || run.GetFirstChild<EndnoteReferenceMark>() != null)
+            return;
 
         var hasContent = false;
         foreach (var child in run.ChildElements)
@@ -566,10 +566,16 @@ public partial class WordHandler
                 sb.Append(HtmlEncode(t.Text));
             else if (child is SymbolChar sym)
             {
-                // w:sym — try to render as Unicode character
+                // w:sym — render with correct font family for symbol fonts
                 var charCode = sym.Char?.Value;
+                var symFont = sym.Font?.Value;
                 if (charCode != null && int.TryParse(charCode, System.Globalization.NumberStyles.HexNumber, null, out var code))
-                    sb.Append($"&#x{code:X};");
+                {
+                    if (symFont != null)
+                        sb.Append($"<span style=\"font-family:'{CssSanitize(symFont)}'\">&#x{code:X};</span>");
+                    else
+                        sb.Append($"&#x{code:X};");
+                }
                 else
                     sb.Append("\u25A1"); // fallback: □
             }
@@ -1076,8 +1082,27 @@ public partial class WordHandler
                 titleText = string.Join("", titleRuns);
             }
 
-            // Default colors
-            var colors = Core.ChartSvgRenderer.DefaultColors;
+            // Read series colors from chart, fallback to defaults
+            var colors = new List<string>();
+            foreach (var series in seriesList)
+            {
+                // Try to read color from the series' solidFill in the chart XML
+                string? seriesColor = null;
+                var idx = seriesList.IndexOf(series);
+                var seriesElements = plotArea.Descendants().Where(e => e.LocalName == "ser").ToList();
+                if (idx < seriesElements.Count)
+                {
+                    var solidFill = seriesElements[idx].Descendants()
+                        .FirstOrDefault(e => e.LocalName == "solidFill");
+                    if (solidFill != null)
+                    {
+                        var srgb = solidFill.Elements().FirstOrDefault(e => e.LocalName == "srgbClr");
+                        seriesColor = srgb?.GetAttributes().FirstOrDefault(a => a.LocalName == "val").Value;
+                        if (seriesColor != null) seriesColor = $"#{seriesColor}";
+                    }
+                }
+                colors.Add(seriesColor ?? Core.ChartSvgRenderer.DefaultColors[idx % Core.ChartSvgRenderer.DefaultColors.Length]);
+            }
 
             // Render SVG chart
             var renderer = new Core.ChartSvgRenderer();
@@ -1091,7 +1116,7 @@ public partial class WordHandler
             int margin = 40;
             int plotW = svgW - margin * 2;
             int plotH = svgH - margin * 2;
-            var seriesColors = colors.Take(seriesList.Count).ToList();
+            var seriesColors = colors;
 
             switch (chartType)
             {
@@ -1112,7 +1137,11 @@ public partial class WordHandler
                     renderer.RenderAreaChartSvg(sb, seriesList, categories, seriesColors, margin, margin, plotW, plotH, false);
                     break;
                 case "scatter":
-                    renderer.RenderLineChartSvg(sb, seriesList, categories, seriesColors, margin, margin, plotW, plotH, false);
+                    // Scatter rendered as line chart with markers (closest available approximation)
+                    renderer.RenderLineChartSvg(sb, seriesList, categories, seriesColors, margin, margin, plotW, plotH, true);
+                    break;
+                case "radar":
+                    renderer.RenderRadarChartSvg(sb, seriesList, categories, seriesColors, svgW, svgH, 30);
                     break;
                 default:
                     // Fallback: render as column chart
@@ -1123,9 +1152,9 @@ public partial class WordHandler
             sb.Append("</svg>");
             sb.Append("</div>");
         }
-        catch
+        catch (Exception ex)
         {
-            sb.Append("<div style=\"padding:1em;color:#999;text-align:center\">[Chart]</div>");
+            sb.Append($"<div style=\"padding:1em;color:#999;text-align:center\">[Chart: {HtmlEncode(ex.Message)}]</div>");
         }
     }
 
@@ -1184,14 +1213,7 @@ public partial class WordHandler
 
             sb.Append($"<div id=\"en{enId}\" style=\"margin:0.3em 0\"><sup>{num}</sup> ");
             foreach (var para in en.Elements<Paragraph>())
-            {
-                foreach (var run in para.Descendants<Run>())
-                {
-                    if (run.GetFirstChild<EndnoteReferenceMark>() != null) continue;
-                    var text = GetRunText(run);
-                    sb.Append(HtmlEncode(text));
-                }
-            }
+                RenderParagraphContentHtml(sb, para);
             sb.AppendLine($" <a href=\"#enref{enId}\" style=\"text-decoration:none\">\u21A9</a></div>");
         }
         sb.AppendLine("</div>");
