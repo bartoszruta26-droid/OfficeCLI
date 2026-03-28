@@ -718,8 +718,9 @@ public partial class WordHandler
         // Get border
         var borderCss = ResolveShapeBorderCss(spPr);
 
-        // Check for text box content
-        var txbx = shape.Descendants().FirstOrDefault(e => e.LocalName == "txbxContent");
+        // pic elements are always images, not text boxes
+        var txbx = shape.LocalName == "pic" ? null
+            : shape.Descendants().FirstOrDefault(e => e.LocalName == "txbxContent");
 
         // Build style
         var style = $"position:absolute;left:{leftPct:0.##}%;top:{topPct:0.##}%;width:{widthPct:0.##}%;height:{heightPct:0.##}%";
@@ -796,7 +797,7 @@ public partial class WordHandler
                         using var ms = new MemoryStream();
                         stream.CopyTo(ms);
                         var base64 = Convert.ToBase64String(ms.ToArray());
-                        sb.Append($"<img src=\"data:{imagePart.ContentType};base64,{base64}\" style=\"width:100%;height:100%;object-fit:cover\">");
+                        sb.Append($"<img src=\"data:{imagePart.ContentType};base64,{base64}\" style=\"width:100%;height:100%;object-fit:contain\">");
                     }
                 }
                 catch { }
