@@ -574,6 +574,13 @@ public partial class WordHandler
                         var sp3 = pPr3.SpacingBetweenLines ?? (pPr3.SpacingBetweenLines = new SpacingBetweenLines());
                         sp3.After = SpacingConverter.ParseWordSpacing(value).ToString();
                         break;
+                    case "pbdr.top" or "pbdr.bottom" or "pbdr.left" or "pbdr.right" or "pbdr.between" or "pbdr.bar" or "pbdr.all" or "pbdr":
+                    case "border.all" or "border" or "border.top" or "border.bottom" or "border.left" or "border.right":
+                    {
+                        var pPrB = style.StyleParagraphProperties ?? EnsureStyleParagraphProperties(style);
+                        ApplyStyleParagraphBorders(pPrB, key, value);
+                        break;
+                    }
                     default:
                         unsupported.Add(key);
                         break;
@@ -1961,6 +1968,41 @@ public partial class WordHandler
     private static void ApplyParagraphBorders(ParagraphProperties pProps, string key, string value)
     {
         var borders = pProps.ParagraphBorders ?? pProps.AppendChild(new ParagraphBorders());
+        var (style, size, color, space) = ParseBorderValue(value);
+
+        switch (key.ToLowerInvariant())
+        {
+            case "pbdr.all" or "pbdr" or "border.all" or "border":
+                borders.TopBorder = MakeBorder<TopBorder>(style, size, color, space);
+                borders.BottomBorder = MakeBorder<BottomBorder>(style, size, color, space);
+                borders.LeftBorder = MakeBorder<LeftBorder>(style, size, color, space);
+                borders.RightBorder = MakeBorder<RightBorder>(style, size, color, space);
+                borders.BetweenBorder = MakeBorder<BetweenBorder>(style, size, color, space);
+                break;
+            case "pbdr.top" or "border.top":
+                borders.TopBorder = MakeBorder<TopBorder>(style, size, color, space);
+                break;
+            case "pbdr.bottom" or "border.bottom":
+                borders.BottomBorder = MakeBorder<BottomBorder>(style, size, color, space);
+                break;
+            case "pbdr.left" or "border.left":
+                borders.LeftBorder = MakeBorder<LeftBorder>(style, size, color, space);
+                break;
+            case "pbdr.right" or "border.right":
+                borders.RightBorder = MakeBorder<RightBorder>(style, size, color, space);
+                break;
+            case "pbdr.between":
+                borders.BetweenBorder = MakeBorder<BetweenBorder>(style, size, color, space);
+                break;
+            case "pbdr.bar":
+                borders.BarBorder = MakeBorder<BarBorder>(style, size, color, space);
+                break;
+        }
+    }
+
+    private static void ApplyStyleParagraphBorders(StyleParagraphProperties spPr, string key, string value)
+    {
+        var borders = spPr.GetFirstChild<ParagraphBorders>() ?? spPr.AppendChild(new ParagraphBorders());
         var (style, size, color, space) = ParseBorderValue(value);
 
         switch (key.ToLowerInvariant())
