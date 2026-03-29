@@ -1,9 +1,48 @@
 // Copyright 2025 OfficeCli (officecli.ai)
 // SPDX-License-Identifier: Apache-2.0
 
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace OfficeCli.Core;
+
+internal class LenientStringDictionaryConverter : JsonConverter<Dictionary<string, string>>
+{
+    public override Dictionary<string, string>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null) return null;
+        if (reader.TokenType != JsonTokenType.StartObject)
+            throw new JsonException("Expected object for props");
+        var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonTokenType.EndObject) return dict;
+            if (reader.TokenType != JsonTokenType.PropertyName)
+                throw new JsonException("Expected property name");
+            var key = reader.GetString()!;
+            reader.Read();
+            var value = reader.TokenType switch
+            {
+                JsonTokenType.String => reader.GetString()!,
+                JsonTokenType.Number => reader.TryGetInt64(out var l) ? l.ToString() : reader.GetDouble().ToString(),
+                JsonTokenType.True => "true",
+                JsonTokenType.False => "false",
+                JsonTokenType.Null => "",
+                _ => throw new JsonException($"Unexpected token {reader.TokenType} for prop value '{key}'")
+            };
+            dict[key] = value;
+        }
+        throw new JsonException("Unexpected end of JSON");
+    }
+
+    public override void Write(Utf8JsonWriter writer, Dictionary<string, string> value, JsonSerializerOptions options)
+    {
+        writer.WriteStartObject();
+        foreach (var kv in value)
+            writer.WriteString(kv.Key, kv.Value);
+        writer.WriteEndObject();
+    }
+}
 
 public class BatchItem
 {
@@ -29,6 +68,7 @@ public class BatchItem
     public string? To { get; set; }
 
     [JsonPropertyName("props")]
+    [JsonConverter(typeof(LenientStringDictionaryConverter))]
     public Dictionary<string, string>? Props { get; set; }
 
     [JsonPropertyName("selector")]
