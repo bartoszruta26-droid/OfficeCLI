@@ -465,6 +465,8 @@ public partial class WordHandler
                 node.Format["superscript"] = true;
             if (run.RunProperties?.VerticalTextAlignment?.Val?.Value == VerticalPositionValues.Subscript)
                 node.Format["subscript"] = true;
+            if (run.RunProperties?.Spacing?.Val?.HasValue == true)
+                node.Format["charSpacing"] = $"{run.RunProperties.Spacing.Val.Value / 20.0:0.##}pt";
             if (run.RunProperties?.Shading?.Fill?.Value != null)
             {
                 node.Format["shading"] = ParseHelpers.FormatHexColor(run.RunProperties.Shading.Fill.Value);

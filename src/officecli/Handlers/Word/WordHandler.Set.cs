@@ -851,6 +851,20 @@ public partial class WordHandler
                             ? new VerticalTextAlignment { Val = VerticalPositionValues.Subscript }
                             : null;
                         break;
+                    case "charspacing" or "charSpacing" or "letterspacing" or "letterSpacing" or "spacing":
+                    {
+                        // Word spacing: w:rPr/w:spacing @w:val in twips (1/20 pt)
+                        // Accept pt values (e.g. "2pt", "0.5pt") or bare numbers as pt
+                        var csVal = value.TrimEnd();
+                        double csPt;
+                        if (csVal.EndsWith("pt", StringComparison.OrdinalIgnoreCase))
+                            csPt = ParseHelpers.SafeParseDouble(csVal[..^2], "charspacing");
+                        else
+                            csPt = ParseHelpers.SafeParseDouble(csVal, "charspacing");
+                        var twips = (int)Math.Round(csPt * 20, MidpointRounding.AwayFromZero);
+                        EnsureRunProperties(run).Spacing = new Spacing { Val = twips };
+                        break;
+                    }
                     case "shading":
                     case "shd":
                         // shd has w:val, w:fill, w:color — value format: "fill" or "val;fill" or "val;fill;color"
@@ -1739,10 +1753,40 @@ public partial class WordHandler
                     case var k when k.StartsWith("border"):
                         ApplyTableBorders(tblPr, key, value);
                         break;
+                    case "colwidths" or "colWidths":
+                    {
+                        var parts = value.Split(',');
+                        var tblGrid = tbl.GetFirstChild<TableGrid>();
+                        if (tblGrid == null)
+                        {
+                            tblGrid = new TableGrid();
+                            tbl.InsertAfter(tblGrid, tblPr);
+                        }
+                        var gridCols = tblGrid.Elements<GridColumn>().ToList();
+                        for (int ci = 0; ci < parts.Length; ci++)
+                        {
+                            var twips = ParseTwips(parts[ci].Trim());
+                            if (ci < gridCols.Count)
+                                gridCols[ci].Width = twips.ToString();
+                            else
+                                tblGrid.AppendChild(new GridColumn { Width = twips.ToString() });
+                            // Also update cell widths in each row for this column
+                            foreach (var tblRow in tbl.Elements<TableRow>())
+                            {
+                                var cells = tblRow.Elements<TableCell>().ToList();
+                                if (ci < cells.Count)
+                                {
+                                    var tcPr = cells[ci].TableCellProperties ?? cells[ci].PrependChild(new TableCellProperties());
+                                    tcPr.TableCellWidth = new TableCellWidth { Width = twips.ToString(), Type = TableWidthUnitValues.Dxa };
+                                }
+                            }
+                        }
+                        break;
+                    }
                     default:
                         if (!GenericXmlQuery.TryCreateTypedChild(tblPr, key, value))
                             unsupported.Add(unsupported.Count == 0
-                                ? $"{key} (valid table props: width, alignment, style, indent, cellspacing, layout, padding, border*, firstRow, lastRow, firstCol, lastCol, bandedRows, bandedCols, caption, description)"
+                                ? $"{key} (valid table props: width, alignment, style, indent, cellspacing, layout, padding, border*, colWidths, firstRow, lastRow, firstCol, lastCol, bandedRows, bandedCols, caption, description)"
                                 : key);
                         break;
                 }

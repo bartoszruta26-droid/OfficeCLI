@@ -1056,10 +1056,12 @@ static class CommandBuilder
         // ==================== batch command ====================
         var batchFileArg = new Argument<FileInfo>("file") { Description = "Office document path" };
         var batchInputOpt = new Option<FileInfo?>("--input") { Description = "JSON file containing batch commands. If omitted, reads from stdin" };
+        var batchCommandsOpt = new Option<string?>("--commands") { Description = "Inline JSON array of batch commands (alternative to --input or stdin)" };
         var batchStopOnErrorOpt = new Option<bool>("--stop-on-error") { Description = "Stop execution on first error (default: continue all)" };
         var batchCommand = new Command("batch", "Execute multiple commands from a JSON array (one open/save cycle)");
         batchCommand.Add(batchFileArg);
         batchCommand.Add(batchInputOpt);
+        batchCommand.Add(batchCommandsOpt);
         batchCommand.Add(batchStopOnErrorOpt);
         batchCommand.Add(jsonOption);
 
@@ -1067,10 +1069,15 @@ static class CommandBuilder
         {
             var file = result.GetValue(batchFileArg)!;
             var inputFile = result.GetValue(batchInputOpt);
+            var inlineCommands = result.GetValue(batchCommandsOpt);
             var stopOnError = result.GetValue(batchStopOnErrorOpt);
 
             string jsonText;
-            if (inputFile != null)
+            if (inlineCommands != null)
+            {
+                jsonText = inlineCommands;
+            }
+            else if (inputFile != null)
             {
                 if (!inputFile.Exists)
                 {

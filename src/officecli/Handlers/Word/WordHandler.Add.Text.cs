@@ -181,6 +181,14 @@ public partial class WordHandler
                 rProps.VerticalTextAlignment = new VerticalTextAlignment { Val = VerticalPositionValues.Superscript };
             if (properties.TryGetValue("subscript", out var pSub) && IsTruthy(pSub))
                 rProps.VerticalTextAlignment = new VerticalTextAlignment { Val = VerticalPositionValues.Subscript };
+            if (properties.TryGetValue("charspacing", out var pCharSp) || properties.TryGetValue("charSpacing", out pCharSp)
+                || properties.TryGetValue("letterspacing", out pCharSp) || properties.TryGetValue("letterSpacing", out pCharSp))
+            {
+                var csPt = pCharSp.EndsWith("pt", StringComparison.OrdinalIgnoreCase)
+                    ? ParseHelpers.SafeParseDouble(pCharSp[..^2], "charspacing")
+                    : ParseHelpers.SafeParseDouble(pCharSp, "charspacing");
+                rProps.Spacing = new Spacing { Val = (int)Math.Round(csPt * 20, MidpointRounding.AwayFromZero) };
+            }
             if (properties.TryGetValue("shd", out var pShd) || properties.TryGetValue("shading", out pShd))
             {
                 var shdParts = pShd.Split(';');
@@ -347,6 +355,14 @@ public partial class WordHandler
             newRProps.VerticalTextAlignment = new VerticalTextAlignment { Val = VerticalPositionValues.Superscript };
         if (properties.TryGetValue("subscript", out var rSub) && IsTruthy(rSub))
             newRProps.VerticalTextAlignment = new VerticalTextAlignment { Val = VerticalPositionValues.Subscript };
+        if (properties.TryGetValue("charspacing", out var rCharSp) || properties.TryGetValue("charSpacing", out rCharSp)
+            || properties.TryGetValue("letterspacing", out rCharSp) || properties.TryGetValue("letterSpacing", out rCharSp))
+        {
+            var csPt = rCharSp.EndsWith("pt", StringComparison.OrdinalIgnoreCase)
+                ? ParseHelpers.SafeParseDouble(rCharSp[..^2], "charspacing")
+                : ParseHelpers.SafeParseDouble(rCharSp, "charspacing");
+            newRProps.Spacing = new Spacing { Val = (int)Math.Round(csPt * 20, MidpointRounding.AwayFromZero) };
+        }
         if (properties.TryGetValue("shd", out var rShd) || properties.TryGetValue("shading", out rShd))
         {
             var shdParts = rShd.Split(';');
