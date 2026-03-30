@@ -266,7 +266,9 @@ public partial class PowerPointHandler
                     }
                     newShape.ShapeProperties!.Transform2D = xfrm;
 
-                    var presetName = properties.GetValueOrDefault("preset", "rect");
+                    var presetName = properties.TryGetValue("preset", out var pn) ? pn
+                        : properties.TryGetValue("geometry", out pn) ? pn
+                        : properties.GetValueOrDefault("shape", "rect");
                     newShape.ShapeProperties.AppendChild(
                         new Drawing.PresetGeometry(new Drawing.AdjustValueList()) { Preset = ParsePresetShape(presetName) }
                     );
