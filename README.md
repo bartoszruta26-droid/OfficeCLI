@@ -1,6 +1,6 @@
 # OfficeCLI
 
-> **OfficeCLI is the world's first and the best Office suite designed for AI agents.**
+> **OfficeCLI is the world's first and the best command-line designed for AI agents.**
 
 **Give any AI agent full control over Word, Excel, and PowerPoint -- in one line of code.**
 
