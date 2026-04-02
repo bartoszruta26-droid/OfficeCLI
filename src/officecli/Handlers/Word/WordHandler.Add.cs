@@ -138,6 +138,9 @@ public partial class WordHandler
                     // to create the DocDefaults chain when absent (e.g. blank documents).
                     TrySetDocDefaults("docdefaults.font", value);
                     break;
+                case "defaultfontsize":
+                    TrySetDocDefaults("docdefaults.fontsize", value);
+                    break;
 
                 case "pagewidth":
                     EnsureSectionProperties().GetFirstChild<PageSize>()!.Width = ParseTwips(value);
