@@ -20,28 +20,28 @@ public partial class PowerPointHandler
             // ==================== Presentation Attributes ====================
             case "firstslidenum" or "firstslidenumber":
             {
-                var pres = _doc.PresentationPart!.Presentation;
+                var pres = _doc.PresentationPart!.Presentation!;
                 pres.FirstSlideNum = ParseHelpers.SafeParseInt(value, "firstSlideNum");
                 pres.Save();
                 return true;
             }
             case "rtl":
             {
-                var pres = _doc.PresentationPart!.Presentation;
+                var pres = _doc.PresentationPart!.Presentation!;
                 pres.RightToLeft = IsTruthy(value);
                 pres.Save();
                 return true;
             }
             case "compatmode" or "compatibilitymode":
             {
-                var pres = _doc.PresentationPart!.Presentation;
+                var pres = _doc.PresentationPart!.Presentation!;
                 pres.CompatibilityMode = IsTruthy(value);
                 pres.Save();
                 return true;
             }
             case "removepersonalinfoonsave" or "removepersonalinfo":
             {
-                var pres = _doc.PresentationPart!.Presentation;
+                var pres = _doc.PresentationPart!.Presentation!;
                 pres.RemovePersonalInfoOnSave = IsTruthy(value);
                 pres.Save();
                 return true;

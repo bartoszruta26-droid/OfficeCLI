@@ -150,7 +150,7 @@ public partial class ExcelHandler
             // ==================== WorkbookProtection ====================
             case "workbook.protection" or "workbookprotection":
             {
-                var workbook = _doc.WorkbookPart!.Workbook;
+                var workbook = _doc.WorkbookPart!.Workbook!;
                 var existing = workbook.GetFirstChild<WorkbookProtection>();
                 existing?.Remove();
                 if (!string.Equals(value, "none", StringComparison.OrdinalIgnoreCase) && IsTruthy(value))
@@ -199,7 +199,7 @@ public partial class ExcelHandler
 
     private WorkbookProperties EnsureWorkbookProperties()
     {
-        var workbook = _doc.WorkbookPart!.Workbook;
+        var workbook = _doc.WorkbookPart!.Workbook!;
         var props = workbook.GetFirstChild<WorkbookProperties>();
         if (props == null)
         {
@@ -217,7 +217,7 @@ public partial class ExcelHandler
 
     private CalculationProperties EnsureCalculationProperties()
     {
-        var workbook = _doc.WorkbookPart!.Workbook;
+        var workbook = _doc.WorkbookPart!.Workbook!;
         var calc = workbook.GetFirstChild<CalculationProperties>();
         if (calc == null)
         {
@@ -229,7 +229,7 @@ public partial class ExcelHandler
 
     private WorkbookProtection EnsureWorkbookProtection()
     {
-        var workbook = _doc.WorkbookPart!.Workbook;
+        var workbook = _doc.WorkbookPart!.Workbook!;
         var prot = workbook.GetFirstChild<WorkbookProtection>();
         if (prot == null)
         {

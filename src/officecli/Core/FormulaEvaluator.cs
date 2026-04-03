@@ -455,12 +455,12 @@ internal partial class FormulaEvaluator
 
         try
         {
-            var sheet = _workbookPart.Workbook.Descendants<Sheet>()
+            var sheet = _workbookPart.Workbook?.Descendants<Sheet>()
                 .FirstOrDefault(s => string.Equals(s.Name?.Value, sheetName, StringComparison.OrdinalIgnoreCase));
             if (sheet?.Id?.Value == null) return FormulaResult.Number(0);
 
             var wsPart = (WorksheetPart)_workbookPart.GetPartById(sheet.Id.Value);
-            var sheetData = wsPart.Worksheet.GetFirstChild<SheetData>();
+            var sheetData = wsPart.Worksheet?.GetFirstChild<SheetData>();
             if (sheetData == null) return FormulaResult.Number(0);
 
             // ResolveCellResult will handle circular detection using qualified ref (sheetKey!cellRef)

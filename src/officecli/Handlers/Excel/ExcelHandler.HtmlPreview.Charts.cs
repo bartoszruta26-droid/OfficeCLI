@@ -525,14 +525,14 @@ public partial class ExcelHandler
         var workbookPart = _doc.WorkbookPart;
         if (workbookPart == null) return (null, 0, 0, 0, 0);
 
-        var sheet = workbookPart.Workbook.Descendants<Sheet>()
+        var sheet = workbookPart.Workbook?.Descendants<Sheet>()
             .FirstOrDefault(s => s.Name?.Value == sheetName);
         if (sheet?.Id?.Value == null) return (null, 0, 0, 0, 0);
 
         try
         {
             var worksheetPart = (WorksheetPart)workbookPart.GetPartById(sheet.Id.Value);
-            var sheetData = worksheetPart.Worksheet.GetFirstChild<SheetData>();
+            var sheetData = worksheetPart.Worksheet?.GetFirstChild<SheetData>();
             return (sheetData, startCol, startRow, endCol, endRow);
         }
         catch { return (null, 0, 0, 0, 0); }

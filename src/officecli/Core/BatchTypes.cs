@@ -189,7 +189,7 @@ internal class BatchResultConverter : JsonConverter<BatchResult>
         if (root.TryGetProperty("success", out var suc)) result.Success = suc.GetBoolean();
         if (root.TryGetProperty("output", out var outp)) result.Output = outp.ValueKind == JsonValueKind.String ? outp.GetString() : outp.GetRawText();
         if (root.TryGetProperty("error", out var err)) result.Error = err.GetString();
-        if (root.TryGetProperty("item", out var itm)) result.Item = JsonSerializer.Deserialize<BatchItem>(itm.GetRawText(), BatchJsonContext.Default.Options);
+        if (root.TryGetProperty("item", out var itm)) result.Item = JsonSerializer.Deserialize(itm.GetRawText(), BatchJsonContext.Default.BatchItem);
         return result;
     }
 
@@ -218,7 +218,7 @@ internal class BatchResultConverter : JsonConverter<BatchResult>
             if (value.Item != null)
             {
                 writer.WritePropertyName("item");
-                JsonSerializer.Serialize(writer, value.Item, BatchJsonContext.Default.Options);
+                JsonSerializer.Serialize(writer, value.Item, BatchJsonContext.Default.BatchItem);
             }
         }
         writer.WriteEndObject();
