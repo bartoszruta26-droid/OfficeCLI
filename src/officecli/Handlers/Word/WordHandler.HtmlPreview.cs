@@ -184,7 +184,7 @@ public partial class WordHandler
 
         for (int i = 0; i < pageList.Count; i++)
         {
-            sb.AppendLine("<div class=\"page-wrapper\">");
+            sb.AppendLine($"<div class=\"page-wrapper\" data-section=\"{i + 1}\">");
             sb.AppendLine($"<div class=\"page\" data-page=\"{i + 1}\" style=\"{maxW}\">");
             if (i == 0) sb.Append(headerHtml);
             sb.Append("<div class=\"page-body\">");
@@ -352,6 +352,33 @@ public partial class WordHandler
       if(!rSet.has(i+1))p.style.display='none';
     });
   }
+  function renderNewContent(){
+    if(typeof katex!=='undefined'){
+      document.querySelectorAll('.katex-formula:not(.katex-rendered)').forEach(function(el){
+        try{katex.render(el.dataset.formula,el,{throwOnError:false,displayMode:!!el.dataset.display});}catch(e){el.textContent=el.dataset.formula;}
+        el.classList.add('katex-rendered');
+      });
+    }
+    // CJK punctuation compression on new content
+    var cjkRe=/([\u3000-\u303F\uFF01-\uFF60\uFE30-\uFE4F\u2014\u2015\u2026\u2018\u2019\u201C\u201D])/;
+    document.querySelectorAll('.page-body').forEach(function(body){
+      var tw=document.createTreeWalker(body,NodeFilter.SHOW_TEXT);
+      var nodes=[];while(tw.nextNode()){var n=tw.currentNode;if(!n.parentNode||!n.parentNode.classList||!n.parentNode.classList.contains('cjk-done'))nodes.push(n);}
+      nodes.forEach(function(nd){
+        if(!cjkRe.test(nd.textContent))return;
+        var parts=nd.textContent.split(cjkRe);
+        if(parts.length<=1)return;
+        var frag=document.createDocumentFragment();
+        for(var i=0;i<parts.length;i++){
+          if(!parts[i])continue;
+          if(cjkRe.test(parts[i])){var sp=document.createElement('span');sp.textContent=parts[i];sp.style.marginRight='-0.2em';sp.classList.add('cjk-done');frag.appendChild(sp);}
+          else frag.appendChild(document.createTextNode(parts[i]));
+        }
+        nd.parentNode.replaceChild(frag,nd);
+      });
+    });
+  }
+  window._wordPaginate=function(){renderNewContent();setTimeout(paginate,0);};
   setTimeout(paginate,100);
 ");
         // Responsive scaling: shrink pages to fit viewport (like PPT's scaleSlides)
@@ -376,11 +403,17 @@ public partial class WordHandler
       document.querySelectorAll('.page-wrapper,.page').forEach(function(el){el.style.transition='';});
     }
     if(window._pendingScrollTo){
+      var _sel=window._pendingScrollTo;
+      var _beh=window._pendingScrollBehavior||'smooth';
       window._pendingScrollTo=null;
-      var allPages=document.querySelectorAll('.page');
-      var last=allPages[allPages.length-1];
-      if(last)last.scrollIntoView({behavior:'smooth',block:'center'});
+      window._pendingScrollBehavior=null;
+      var _t;
+      if(_sel==='_last_page'){var _lb=document.querySelector('.page-wrapper:last-of-type .page-body');if(_lb){var _ck=Array.from(_lb.children).filter(function(c){return !c.classList.contains('footnotes');});_t=_ck[_ck.length-1]||_lb;}if(!_t){var _ap=document.querySelectorAll('.page');_t=_ap[_ap.length-1];}}
+      else{_t=document.querySelector(_sel);if(!_t){var _ap=document.querySelectorAll('.page');_t=_ap[_ap.length-1];}}
+      if(_t)_t.scrollIntoView({behavior:_beh,block:'center'});
     }
+    var _frz=document.getElementById('_sse_freeze');
+    if(_frz)_frz.remove();
   }
   var _resizeTimer;
   window.addEventListener('resize',function(){

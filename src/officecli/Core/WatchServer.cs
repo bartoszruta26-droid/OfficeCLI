@@ -79,22 +79,102 @@ public class WatchServer : IDisposable
                 var counter = document.querySelector('.page-counter');
                 if (counter) counter.textContent = '1 / ' + slides.length;
             }
+            // Word diff-update: de-paginate, diff children, re-paginate (no full innerHTML swap)
+            function wordDiffUpdate(msg) {
+                var visiblePageNum = 0;
+                document.querySelectorAll('.page-wrapper').forEach(function(w) {
+                    var rect = w.getBoundingClientRect();
+                    if (rect.top < window.innerHeight / 2) {
+                        var p = w.querySelector('.page');
+                        if (p) visiblePageNum = parseInt(p.getAttribute('data-page')) || 0;
+                    }
+                });
+                fetch('/').then(function(r) { return r.text(); }).then(function(html) {
+                    var doc = new DOMParser().parseFromString(html, 'text/html');
+                    // Update styles
+                    var oldStyles = document.querySelectorAll('head style');
+                    var newStyles = doc.querySelectorAll('head style');
+                    oldStyles.forEach(function(s) { s.remove(); });
+                    newStyles.forEach(function(s) { document.head.appendChild(s.cloneNode(true)); });
+                    // De-paginate: merge pagination-created pages back into section wrappers
+                    var allW = Array.from(document.querySelectorAll('.page-wrapper'));
+                    var curSec = null;
+                    allW.forEach(function(w) {
+                        if (w.hasAttribute('data-section')) { curSec = w; return; }
+                        if (!curSec) return;
+                        var src = w.querySelector('.page-body');
+                        var dst = curSec.querySelector('.page-body');
+                        if (src && dst) {
+                            Array.from(src.children).forEach(function(c) {
+                                if (!c.classList.contains('footnotes')) dst.appendChild(c);
+                            });
+                        }
+                        w.remove();
+                    });
+                    // Diff per section
+                    var contentAdded = false;
+                    var oldSecs = Array.from(document.querySelectorAll('.page-wrapper[data-section]'));
+                    var newSecs = Array.from(doc.querySelectorAll('.page-wrapper[data-section]'));
+                    var maxS = Math.max(oldSecs.length, newSecs.length);
+                    for (var si = 0; si < maxS; si++) {
+                        if (si >= oldSecs.length) {
+                            // New section added
+                            var last = document.querySelector('.page-wrapper[data-section]:last-of-type');
+                            if (last) last.after(newSecs[si].cloneNode(true));
+                            continue;
+                        }
+                        if (si >= newSecs.length) { oldSecs[si].remove(); continue; }
+                        var oldB = oldSecs[si].querySelector('.page-body');
+                        var newB = newSecs[si].querySelector('.page-body');
+                        if (!oldB || !newB) continue;
+                        var oldK = Array.from(oldB.children).filter(function(c){ return !c.classList.contains('footnotes'); });
+                        var newK = Array.from(newB.children).filter(function(c){ return !c.classList.contains('footnotes'); });
+                        // Common prefix
+                        var pi = 0;
+                        while (pi < oldK.length && pi < newK.length && oldK[pi].outerHTML === newK[pi].outerHTML) pi++;
+                        if (pi === oldK.length && pi === newK.length) continue; // identical
+                        // Common suffix
+                        var oi = oldK.length - 1, ni = newK.length - 1;
+                        while (oi >= pi && ni >= pi && oldK[oi].outerHTML === newK[ni].outerHTML) { oi--; ni--; }
+                        // Remove old diff range
+                        for (var j = oi; j >= pi; j--) oldK[j].remove();
+                        // Insert new diff range
+                        var before = (oi + 1 < oldK.length) ? oldK[oi + 1] : oldB.querySelector('.footnotes');
+                        for (var j = pi; j <= ni; j++) oldB.insertBefore(newK[j].cloneNode(true), before);
+                        if (newK.length > oldK.length) contentAdded = true;
+                    }
+                    // Set scroll target
+                    if (contentAdded) {
+                        window._pendingScrollTo = '_last_page';
+                    } else if (msg.scrollTo) {
+                        window._pendingScrollTo = msg.scrollTo;
+                    } else if (visiblePageNum > 0) {
+                        window._pendingScrollTo = '.page[data-page="' + visiblePageNum + '"]';
+                        window._pendingScrollBehavior = 'instant';
+                    }
+                    // Re-paginate (will also re-scale and remove freeze)
+                    if (typeof window._wordPaginate === 'function') window._wordPaginate();
+                    else { var f=document.getElementById('_sse_freeze'); if(f)f.remove(); }
+                });
+            }
             es.addEventListener('update', function(e) {
                 var msg = JSON.parse(e.data);
                 if (msg.action === 'full') {
+                    // Word: diff-based update (no full body replacement)
+                    if (document.querySelector('.page-wrapper[data-section]')) {
+                        wordDiffUpdate(msg);
+                        return;
+                    }
+                    // Non-Word (PPT/Excel): full body replacement
                     fetch('/').then(function(r) { return r.text(); }).then(function(html) {
-                        // Extract new body content and replace in-place (no reload flash)
                         var doc = new DOMParser().parseFromString(html, 'text/html');
-                        // Replace styles
                         var oldStyles = document.querySelectorAll('head style');
                         var newStyles = doc.querySelectorAll('head style');
                         oldStyles.forEach(function(s) { s.remove(); });
                         newStyles.forEach(function(s) { document.head.appendChild(s.cloneNode(true)); });
-                        // Replace body content (preserve our SSE script)
                         var scripts = document.body.querySelectorAll('script');
                         var sseScript = null;
                         scripts.forEach(function(s) { if (s.textContent.indexOf('EventSource') >= 0) sseScript = s; });
-                        // Pre-apply sheet visibility in parsed DOM before inserting
                         var targetSheetIdx = -1;
                         if (msg.scrollTo && msg.scrollTo.indexOf('data-sheet') >= 0) {
                             var m = msg.scrollTo.match(/data-sheet="(\d+)"/);
@@ -116,14 +196,12 @@ public class WatchServer : IDisposable
                         document.body.innerHTML = doc.body.innerHTML;
                         if (sseScript) document.body.appendChild(sseScript);
                         window.scrollTo(0, savedScrollY);
-                        // Re-run inline scripts from new content (switchSheet etc.)
                         doc.body.querySelectorAll('script').forEach(function(s) {
                             if (s.textContent.indexOf('EventSource') >= 0) return;
                             var ns = document.createElement('script');
                             ns.textContent = s.textContent;
                             document.body.appendChild(ns);
                         });
-                        // Apply scroll target (non-sheet) — wait for pagination + scaling to finish
                         if (msg.scrollTo && targetSheetIdx < 0) {
                             window._pendingScrollTo = msg.scrollTo;
                         }
