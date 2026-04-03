@@ -43,6 +43,9 @@ public static class FormulaParser
     {
         try
         {
+            // Preprocess: fix double-escaped backslashes (common AI/JSON over-escaping)
+            // \\frac → \frac, \\sqrt → \sqrt, etc. (only when \\ is directly followed by a letter)
+            latex = FixDoubleEscapedCommands(latex);
             // Preprocess: convert {a \over b} to \frac{a}{b}
             latex = RewriteOver(latex);
             var tokens = Tokenize(latex);
@@ -55,6 +58,35 @@ public static class FormulaParser
             throw new FormulaParseException(
                 $"Failed to parse formula: {ex.Message} {KatexDocsHint}", ex);
         }
+    }
+
+    /// <summary>
+    /// Fix double-escaped backslashes from AI/JSON over-escaping.
+    /// Converts \\cmd → \cmd when \\ is directly followed by a letter sequence.
+    /// Safe because \\letter is not valid LaTeX (line break immediately followed by
+    /// a bare word has no mathematical meaning). Legitimate usage like \\ \frac always
+    /// has a space between the line break and the next command.
+    /// </summary>
+    private static string FixDoubleEscapedCommands(string latex)
+    {
+        // Replace \\ followed directly by a letter with \ (single pass, left to right)
+        var sb = new System.Text.StringBuilder(latex.Length);
+        int i = 0;
+        while (i < latex.Length)
+        {
+            if (i + 2 < latex.Length && latex[i] == '\\' && latex[i + 1] == '\\' && char.IsLetter(latex[i + 2]))
+            {
+                // Collapse \\ to \ before the command
+                sb.Append('\\');
+                i += 2; // skip both backslashes, the letter will be consumed in the next iteration
+            }
+            else
+            {
+                sb.Append(latex[i]);
+                i++;
+            }
+        }
+        return sb.ToString();
     }
 
     /// <summary>
