@@ -244,7 +244,9 @@ Path controls search scope: `/` = all slides, `/slide[N]` = single slide, `/slid
 | `find` + `replace` | Replace matched text |
 | `find` + `replace` + format props | Replace text and apply format to new text |
 
-- `r"..."` prefix enables regex mode
+- `r"..."` prefix enables regex mode; alternatively, use `regex=true` prop (recommended for batch/JSON):
+  - CLI: `--prop 'find=\d+%' --prop regex=true --prop color=red`
+  - Batch: `{"props":{"find":"\\d+%","regex":"true","color":"FF0000"}}`
 - Path controls search scope: `/` = body only (excludes headers/footers), `/header[1]` = first header, `/footer[1]` = first footer, `/body/p[1]` = specific paragraph, etc.
 - If `find=` matches nothing, the command succeeds with no changes (no error)
 - Matching is **case-sensitive** by default. Use regex `(?i)` flag for case-insensitive: `find=r"(?i)error"`

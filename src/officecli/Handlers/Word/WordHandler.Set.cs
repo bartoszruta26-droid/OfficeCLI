@@ -42,7 +42,7 @@ public partial class WordHandler
             foreach (var (key, value) in properties)
             {
                 var k = key.ToLowerInvariant();
-                if (k is "find" or "replace" or "scope") continue;
+                if (k is "find" or "replace" or "scope" or "regex") continue;
                 // Paragraph-level properties go to paraProps
                 if (k is "style" or "alignment" or "align" or "firstlineindent" or "leftindent" or "indentleft"
                     or "indent" or "rightindent" or "indentright" or "hangingindent" or "spacebefore"
@@ -55,6 +55,10 @@ public partial class WordHandler
 
             if (replace == null && formatProps.Count == 0 && paraProps.Count == 0)
                 throw new ArgumentException("'find' requires either 'replace' and/or format properties (e.g. bold, highlight, color).");
+
+            // Support regex=true as an alternative to r"..." prefix
+            if (properties.TryGetValue("regex", out var regexFlag) && ParseHelpers.IsTruthy(regexFlag) && !findText.StartsWith("r\"") && !findText.StartsWith("r'"))
+                findText = $"r\"{findText}\"";
 
             var effectivePath = (path is "" or "/") ? "/body" : path;
             ProcessFind(effectivePath, findText, replace, formatProps.Count > 0 ? formatProps : new Dictionary<string, string>());

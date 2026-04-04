@@ -44,6 +44,8 @@ public partial class ExcelHandler
         // Excel only supports find+replace — reject find without replace early (before path dispatch)
         if (properties.ContainsKey("find") && !properties.ContainsKey("replace"))
             throw new ArgumentException("Excel only supports 'find' with 'replace'. Use 'find' + 'replace' for text replacement. find+format (without replace) is not supported in Excel.");
+        if (properties.ContainsKey("regex") && properties.ContainsKey("find"))
+            throw new ArgumentException("Excel find+replace does not support regex. Remove 'regex' property.");
 
         // Handle root path "/" — document properties
         if (path == "/")

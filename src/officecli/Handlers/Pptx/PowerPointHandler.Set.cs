@@ -44,9 +44,14 @@ public partial class PowerPointHandler
             formatProps.Remove("find");
             formatProps.Remove("replace");
             formatProps.Remove("scope");
+            formatProps.Remove("regex");
 
             if (replace == null && formatProps.Count == 0)
                 throw new ArgumentException("'find' requires either 'replace' and/or format properties (e.g. bold, color, size).");
+
+            // Support regex=true as an alternative to r"..." prefix
+            if (properties.TryGetValue("regex", out var regexFlag) && ParseHelpers.IsTruthy(regexFlag) && !findText.StartsWith("r\"") && !findText.StartsWith("r'"))
+                findText = $"r\"{findText}\"";
 
             ProcessPptFind(path, findText, replace, formatProps);
             return [];
