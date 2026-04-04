@@ -248,6 +248,7 @@ Path controls search scope: `/` = all slides, `/slide[N]` = single slide, `/slid
   - Batch JSON: `{"props":{"find":"\\d+%","regex":"true","color":"FF0000"}}`
 - Path controls search scope: `/` = body only (excludes headers/footers), `/header[1]` = first header, `/footer[1]` = first footer, `/body/p[1]` = specific paragraph, etc.
 - If `find=` matches nothing, the command succeeds with no changes (no error)
+- `--json` output includes a `"matched": N` field indicating the number of matches found
 - Matching is **case-sensitive** by default. For case-insensitive, use regex: `--prop 'find=(?i)error' --prop regex=true`
 - `find:` / `find=` matches work across run boundaries — text split across multiple runs is still found
 
@@ -312,10 +313,12 @@ Run `officecli <format> add` for all addable types and their properties.
 ### move, swap, remove
 
 ```bash
-officecli move <file> <path> [--to <parent>] [--index N]
+officecli move <file> <path> [--to <parent>] [--index N] [--after <path>] [--before <path>]
 officecli swap <file> <path1> <path2>
 officecli remove <file> '/body/p[4]'
 ```
+
+When using `--after` or `--before`, `--to` can be omitted — the target container is inferred from the anchor path.
 
 ### batch — multiple operations in one save cycle
 
@@ -335,7 +338,7 @@ officecli batch data.xlsx --commands '[{"op":"set","path":"/Sheet1/A1","props":{
 officecli batch data.xlsx --input updates.json --force --json
 ```
 
-Batch supports: `add`, `set`, `get`, `query`, `remove`, `move`, `view`, `raw`, `raw-set`, `validate`.
+Batch supports: `add`, `set`, `get`, `query`, `remove`, `move`, `swap`, `view`, `raw`, `raw-set`, `validate`.
 
 Batch fields: `command` (or `op`), `path`, `parent`, `type`, `from`, `to`, `index`, `props` (dict), `selector`, `mode`, `depth`, `part`, `xpath`, `action`, `xml`.
 
