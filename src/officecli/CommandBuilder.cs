@@ -283,15 +283,20 @@ static partial class CommandBuilder
                     throw new ArgumentException("'add' command requires 'parent' field. Example: {\"command\": \"add\", \"parent\": \"/slide[1]\", \"type\": \"shape\", \"props\": {\"text\": \"Hello\"}}");
                 if (string.IsNullOrEmpty(item.Type) && string.IsNullOrEmpty(item.From))
                     throw new ArgumentException("'add' command requires 'type' or 'from' field. Example: {\"command\": \"add\", \"parent\": \"/\", \"type\": \"slide\"}");
+                InsertPosition? pos = null;
+                if (item.Index.HasValue) pos = InsertPosition.AtIndex(item.Index.Value);
+                else if (!string.IsNullOrEmpty(item.After)) pos = InsertPosition.AfterElement(item.After);
+                else if (!string.IsNullOrEmpty(item.Before)) pos = InsertPosition.BeforeElement(item.Before);
+
                 if (!string.IsNullOrEmpty(item.From))
                 {
-                    var resultPath = handler.CopyFrom(item.From, parentPath, item.Index.HasValue ? InsertPosition.AtIndex(item.Index.Value) : null);
+                    var resultPath = handler.CopyFrom(item.From, parentPath, pos);
                     return $"Copied to {resultPath}";
                 }
                 else
                 {
                     var type = item.Type ?? "";
-                    var resultPath = handler.Add(parentPath, type, item.Index.HasValue ? InsertPosition.AtIndex(item.Index.Value) : null, props);
+                    var resultPath = handler.Add(parentPath, type, pos, props);
                     return $"Added {type} at {resultPath}";
                 }
             }

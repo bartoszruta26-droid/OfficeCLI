@@ -72,6 +72,8 @@ internal class BatchItemConverter : JsonConverter<BatchItem>
                 case "type": item.Type = reader.GetString(); break;
                 case "from": item.From = reader.GetString(); break;
                 case "index": item.Index = reader.TokenType == JsonTokenType.Null ? null : reader.GetInt32(); break;
+                case "after": item.After = reader.GetString(); break;
+                case "before": item.Before = reader.GetString(); break;
                 case "to": item.To = reader.GetString(); break;
                 case "props": item.Props = PropsConverter.Read(ref reader, typeof(Dictionary<string, string>), options); break;
                 case "selector": item.Selector = reader.GetString(); break;
@@ -120,6 +122,8 @@ public class BatchItem
     public string? Type { get; set; }
     public string? From { get; set; }
     public int? Index { get; set; }
+    public string? After { get; set; }
+    public string? Before { get; set; }
     public string? To { get; set; }
     public Dictionary<string, string>? Props { get; set; }
     public string? Selector { get; set; }
@@ -133,7 +137,7 @@ public class BatchItem
 
     internal static readonly HashSet<string> KnownFields = new(StringComparer.OrdinalIgnoreCase)
     {
-        "command", "op", "path", "parent", "type", "from", "index", "to",
+        "command", "op", "path", "parent", "type", "from", "index", "after", "before", "to",
         "props", "selector", "text", "mode", "depth", "part", "xpath", "action", "xml"
     };
 
@@ -146,6 +150,8 @@ public class BatchItem
         if (Type != null) req.Args["type"] = Type;
         if (From != null) req.Args["from"] = From;
         if (Index.HasValue) req.Args["index"] = Index.Value.ToString();
+        if (After != null) req.Args["after"] = After;
+        if (Before != null) req.Args["before"] = Before;
         if (To != null) req.Args["to"] = To;
         if (Selector != null) req.Args["selector"] = Selector;
         if (Text != null) req.Args["text"] = Text;
