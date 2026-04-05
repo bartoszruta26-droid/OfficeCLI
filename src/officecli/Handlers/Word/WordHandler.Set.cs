@@ -1338,30 +1338,30 @@ public partial class WordHandler
                                     break;
                                 case "bold":
                                     pmrp.RemoveAllChildren<Bold>();
-                                    if (IsTruthy(value)) pmrp.AppendChild(new Bold());
+                                    if (IsTruthy(value)) InsertRunPropInSchemaOrder(pmrp, new Bold());
                                     break;
                                 case "italic":
                                     pmrp.RemoveAllChildren<Italic>();
-                                    if (IsTruthy(value)) pmrp.AppendChild(new Italic());
+                                    if (IsTruthy(value)) InsertRunPropInSchemaOrder(pmrp, new Italic());
                                     break;
                                 case "color":
                                     pmrp.RemoveAllChildren<Color>();
-                                    pmrp.AppendChild(new Color { Val = SanitizeHex(value) });
+                                    InsertRunPropInSchemaOrder(pmrp, new Color { Val = SanitizeHex(value) });
                                     break;
                                 case "highlight":
                                     pmrp.RemoveAllChildren<Highlight>();
-                                    pmrp.AppendChild(new Highlight { Val = ParseHighlightColor(value) });
+                                    InsertRunPropInSchemaOrder(pmrp, new Highlight { Val = ParseHighlightColor(value) });
                                     break;
                                 case "underline":
                                 {
                                     var ulVal = value.ToLowerInvariant() switch { "true" => "single", "false" or "none" => "none", _ => value };
                                     pmrp.RemoveAllChildren<Underline>();
-                                    pmrp.AppendChild(new Underline { Val = new UnderlineValues(ulVal) });
+                                    InsertRunPropInSchemaOrder(pmrp, new Underline { Val = new UnderlineValues(ulVal) });
                                     break;
                                 }
                                 case "strike":
                                     pmrp.RemoveAllChildren<Strike>();
-                                    if (IsTruthy(value)) pmrp.AppendChild(new Strike());
+                                    if (IsTruthy(value)) InsertRunPropInSchemaOrder(pmrp, new Strike());
                                     break;
                             }
                         }

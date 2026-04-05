@@ -503,35 +503,35 @@ public partial class WordHandler
                 break;
             case "bold":
                 props.RemoveAllChildren<Bold>();
-                if (IsTruthy(value)) props.AppendChild(new Bold());
+                if (IsTruthy(value)) InsertRunPropInSchemaOrder(props, new Bold());
                 break;
             case "italic":
                 props.RemoveAllChildren<Italic>();
-                if (IsTruthy(value)) props.AppendChild(new Italic());
+                if (IsTruthy(value)) InsertRunPropInSchemaOrder(props, new Italic());
                 break;
             case "color":
                 props.RemoveAllChildren<Color>();
-                props.AppendChild(new Color { Val = SanitizeHex(value) });
+                InsertRunPropInSchemaOrder(props, new Color { Val = SanitizeHex(value) });
                 break;
             case "highlight":
                 props.RemoveAllChildren<Highlight>();
-                props.AppendChild(new Highlight { Val = ParseHighlightColor(value) });
+                InsertRunPropInSchemaOrder(props, new Highlight { Val = ParseHighlightColor(value) });
                 break;
             case "underline":
                 props.RemoveAllChildren<Underline>();
                 var ulMapped = value.ToLowerInvariant() switch { "true" => "single", "false" or "none" => "none", _ => value };
-                props.AppendChild(new Underline { Val = new UnderlineValues(ulMapped) });
+                InsertRunPropInSchemaOrder(props, new Underline { Val = new UnderlineValues(ulMapped) });
                 break;
             case "strike":
                 props.RemoveAllChildren<Strike>();
-                if (IsTruthy(value)) props.AppendChild(new Strike());
+                if (IsTruthy(value)) InsertRunPropInSchemaOrder(props, new Strike());
                 break;
             case "charspacing" or "charSpacing" or "letterspacing" or "letterSpacing" or "spacing":
                 var csPt = value.EndsWith("pt", StringComparison.OrdinalIgnoreCase)
                     ? ParseHelpers.SafeParseDouble(value[..^2], "charspacing")
                     : ParseHelpers.SafeParseDouble(value, "charspacing");
                 props.RemoveAllChildren<Spacing>();
-                props.AppendChild(new Spacing { Val = (int)Math.Round(csPt * 20, MidpointRounding.AwayFromZero) });
+                InsertRunPropInSchemaOrder(props, new Spacing { Val = (int)Math.Round(csPt * 20, MidpointRounding.AwayFromZero) });
                 break;
             case "shading" or "shd":
                 props.RemoveAllChildren<Shading>();
@@ -557,17 +557,66 @@ public partial class WordHandler
                 break;
             case "caps":
                 props.RemoveAllChildren<Caps>();
-                if (IsTruthy(value)) props.AppendChild(new Caps());
+                if (IsTruthy(value)) InsertRunPropInSchemaOrder(props, new Caps());
                 break;
             case "smallcaps":
                 props.RemoveAllChildren<SmallCaps>();
-                if (IsTruthy(value)) props.AppendChild(new SmallCaps());
+                if (IsTruthy(value)) InsertRunPropInSchemaOrder(props, new SmallCaps());
                 break;
             case "vanish":
                 props.RemoveAllChildren<Vanish>();
-                if (IsTruthy(value)) props.AppendChild(new Vanish());
+                if (IsTruthy(value)) InsertRunPropInSchemaOrder(props, new Vanish());
                 break;
         }
+    }
+
+    /// <summary>
+    /// Insert a run property element in the correct CT_RPr schema position.
+    /// CT_RPr order: rFonts, b, bCs, i, iCs, caps, smallCaps, strike, dstrike, outline, shadow,
+    /// emboss, imprint, noProof, snapToGrid, vanish, webHidden, color, spacing, w, kern, position,
+    /// sz, szCs, highlight, u, effect, ...
+    /// </summary>
+    private static void InsertRunPropInSchemaOrder(OpenXmlCompositeElement props, OpenXmlElement elem)
+    {
+        // Map element types to their position in the CT_RPr schema sequence.
+        // Only the types we actually use are listed; unlisted types get a high index (appended at end).
+        static int SchemaIndex(OpenXmlElement e) => e switch
+        {
+            RunFonts => 0,
+            Bold => 1,
+            BoldComplexScript => 2,
+            Italic => 3,
+            ItalicComplexScript => 4,
+            Caps => 5,
+            SmallCaps => 6,
+            Strike => 7,
+            // dstrike, outline, shadow, emboss, imprint, noProof, snapToGrid
+            Vanish => 14,
+            // webHidden = 15
+            Color => 16,
+            Spacing => 17,
+            // w = 18, kern = 19, position = 20
+            FontSize => 21,
+            FontSizeComplexScript => 22,
+            Highlight => 23,
+            Underline => 24,
+            // effect, ...
+            _ => 100,
+        };
+
+        int targetIdx = SchemaIndex(elem);
+
+        // Find the first existing child whose schema position is after the element we're inserting
+        foreach (var child in props.ChildElements)
+        {
+            if (SchemaIndex(child) > targetIdx)
+            {
+                child.InsertBeforeSelf(elem);
+                return;
+            }
+        }
+        // No later element found — append at end
+        props.AppendChild(elem);
     }
 
     private static string GetBookmarkText(BookmarkStart bkStart)
