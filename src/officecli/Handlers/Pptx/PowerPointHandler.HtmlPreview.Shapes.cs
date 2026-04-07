@@ -851,7 +851,7 @@ public partial class PowerPointHandler
 
     // ==================== Group Rendering ====================
 
-    private void RenderGroup(StringBuilder sb, GroupShape grp, SlidePart slidePart, Dictionary<string, string> themeColors)
+    private void RenderGroup(StringBuilder sb, GroupShape grp, SlidePart slidePart, Dictionary<string, string> themeColors, string? dataPath = null)
     {
         var grpXfrm = grp.GroupShapeProperties?.TransformGroup;
         if (grpXfrm?.Offset == null || grpXfrm?.Extents == null) return;
@@ -869,7 +869,12 @@ public partial class PowerPointHandler
         var offX = childOff?.X?.Value ?? 0;
         var offY = childOff?.Y?.Value ?? 0;
 
-        sb.AppendLine($"    <div class=\"group\" style=\"left:{Units.EmuToPt(x)}pt;top:{Units.EmuToPt(y)}pt;width:{Units.EmuToPt(cx)}pt;height:{Units.EmuToPt(cy)}pt\">");
+        // Group is selected as a whole. Children inside the group don't get their own
+        // data-path because nested @id= addressing isn't currently supported by
+        // ResolveIdPath — clicks inside walk up via closest('[data-path]') and select
+        // the group container.
+        var dataPathAttr = string.IsNullOrEmpty(dataPath) ? "" : $" data-path=\"{HtmlEncode(dataPath)}\"";
+        sb.AppendLine($"    <div class=\"group\"{dataPathAttr} style=\"left:{Units.EmuToPt(x)}pt;top:{Units.EmuToPt(y)}pt;width:{Units.EmuToPt(cx)}pt;height:{Units.EmuToPt(cy)}pt\">");
 
         foreach (var child in grp.ChildElements)
         {

@@ -389,7 +389,7 @@ public partial class PowerPointHandler
                     break;
                 case GroupShape grp:
                     groupIdx++;
-                    RenderGroup(sb, grp, slidePart, themeColors);
+                    RenderGroup(sb, grp, slidePart, themeColors, dataPath: PathFor("group", grp, groupIdx));
                     break;
                 default:
                     // mc:AlternateContent — render 3D models, zoom, etc.
