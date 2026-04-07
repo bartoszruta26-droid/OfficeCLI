@@ -770,6 +770,28 @@ public partial class PowerPointHandler
                     case "height":
                         row.Height = ParseEmu(value);
                         break;
+                    case "text":
+                    {
+                        // Two behaviors based on presence of tab:
+                        //  - No tab: broadcast the same text to all cells in the row
+                        //  - Tab-delimited: distribute tokens across cells by position
+                        //    ("X1\tX2\tX3" → tc[1]="X1", tc[2]="X2", tc[3]="X3")
+                        // Extra tokens beyond cell count are dropped; cells beyond token
+                        // count are left unchanged.
+                        var rowCells = row.Elements<Drawing.TableCell>().ToList();
+                        if (value.Contains('\t'))
+                        {
+                            var tokens = value.Split('\t');
+                            for (int i = 0; i < rowCells.Count && i < tokens.Length; i++)
+                                ReplaceCellText(rowCells[i], tokens[i]);
+                        }
+                        else
+                        {
+                            foreach (var c in rowCells)
+                                ReplaceCellText(c, value);
+                        }
+                        break;
+                    }
                     default:
                         // c1, c2, ... shorthand: set text of specific cell by index
                         if (key.Length >= 2 && key[0] == 'c' && int.TryParse(key.AsSpan(1), out var cIdx))
@@ -777,35 +799,7 @@ public partial class PowerPointHandler
                             var rowCells = row.Elements<Drawing.TableCell>().ToList();
                             if (cIdx < 1 || cIdx > rowCells.Count)
                                 throw new ArgumentException($"Cell c{cIdx} out of range (row has {rowCells.Count} cells)");
-                            var targetCell = rowCells[cIdx - 1];
-                            // Replace text in first paragraph's first run, or create one
-                            var txBody = targetCell.TextBody;
-                            if (txBody == null)
-                            {
-                                txBody = new Drawing.TextBody(
-                                    new Drawing.BodyProperties(),
-                                    new Drawing.ListStyle(),
-                                    new Drawing.Paragraph());
-                                targetCell.AppendChild(txBody);
-                            }
-                            var para = txBody.Elements<Drawing.Paragraph>().FirstOrDefault()
-                                ?? txBody.AppendChild(new Drawing.Paragraph());
-                            para.RemoveAllChildren<Drawing.Run>();
-                            para.RemoveAllChildren<Drawing.Break>();
-                            // Remove EndParagraphRunProperties before appending Run,
-                            // then re-add after — schema requires Run before EndParagraphRunProperties
-                            var savedEndParaRPr = para.Elements<Drawing.EndParagraphRunProperties>().FirstOrDefault();
-                            if (savedEndParaRPr != null)
-                                savedEndParaRPr.Remove();
-                            if (!string.IsNullOrEmpty(value))
-                            {
-                                var newRun = new Drawing.Run(
-                                    new Drawing.RunProperties { Language = "en-US" },
-                                    new Drawing.Text { Text = value });
-                                para.AppendChild(newRun);
-                            }
-                            if (savedEndParaRPr != null)
-                                para.AppendChild(savedEndParaRPr);
+                            ReplaceCellText(rowCells[cIdx - 1], value);
                         }
                         else
                         {

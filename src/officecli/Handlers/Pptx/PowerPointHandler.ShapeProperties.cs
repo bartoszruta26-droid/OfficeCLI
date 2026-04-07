@@ -870,6 +870,40 @@ public partial class PowerPointHandler
         para.Append(run);
     }
 
+    /// <summary>
+    /// Replace the text content of a table cell's first paragraph with the given value.
+    /// Removes any existing runs/breaks and preserves EndParagraphRunProperties ordering
+    /// (schema requires Run before EndParagraphRunProperties).
+    /// </summary>
+    private static void ReplaceCellText(Drawing.TableCell cell, string value)
+    {
+        var txBody = cell.TextBody;
+        if (txBody == null)
+        {
+            txBody = new Drawing.TextBody(
+                new Drawing.BodyProperties(),
+                new Drawing.ListStyle(),
+                new Drawing.Paragraph());
+            cell.AppendChild(txBody);
+        }
+        var para = txBody.Elements<Drawing.Paragraph>().FirstOrDefault()
+            ?? txBody.AppendChild(new Drawing.Paragraph());
+        para.RemoveAllChildren<Drawing.Run>();
+        para.RemoveAllChildren<Drawing.Break>();
+        var savedEndParaRPr = para.Elements<Drawing.EndParagraphRunProperties>().FirstOrDefault();
+        if (savedEndParaRPr != null)
+            savedEndParaRPr.Remove();
+        if (!string.IsNullOrEmpty(value))
+        {
+            var newRun = new Drawing.Run(
+                new Drawing.RunProperties { Language = "en-US" },
+                new Drawing.Text { Text = value });
+            para.AppendChild(newRun);
+        }
+        if (savedEndParaRPr != null)
+            para.AppendChild(savedEndParaRPr);
+    }
+
     private static List<string> SetTableCellProperties(Drawing.TableCell cell, Dictionary<string, string> properties)
     {
         var unsupported = new List<string>();
