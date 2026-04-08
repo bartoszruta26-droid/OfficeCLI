@@ -70,9 +70,27 @@ internal static class PivotTableHelper
         var cachePart = workbookPart.AddNewPart<PivotTableCacheDefinitionPart>();
         var cacheRelId = workbookPart.GetIdOfPart(cachePart);
 
-        // Build cache definition
-        var cacheDef = BuildCacheDefinition(sourceSheetName, sourceRef, headers, columnData);
+        // Build cache definition + per-field shared-item index maps. The maps are
+        // needed to write pivotCacheRecords below: each non-numeric field value is
+        // referenced as <x v="N"/> where N is the value's position in sharedItems.
+        var (cacheDef, fieldNumeric, fieldValueIndex) =
+            BuildCacheDefinition(sourceSheetName, sourceRef, headers, columnData);
         cachePart.PivotCacheDefinition = cacheDef;
+        cachePart.PivotCacheDefinition.Save();
+
+        // 4b. Create PivotTableCacheRecordsPart and write one record per source row.
+        // Without records, Excel rejects the file with "PivotTable report is invalid"
+        // because saveData defaults to true. Writing real records also makes the file
+        // self-contained for non-refreshing consumers (POI, third-party parsers).
+        var recordsPart = cachePart.AddNewPart<PivotTableCacheRecordsPart>();
+        recordsPart.PivotCacheRecords = BuildCacheRecords(columnData, fieldNumeric, fieldValueIndex);
+        recordsPart.PivotCacheRecords.Save();
+
+        // The pivotCacheDefinition element MUST carry an r:id attribute pointing to the
+        // records part — Excel uses it to find records, not the package _rels alone.
+        // LibreOffice writes this in xepivotxml.cxx:280 (FSNS(XML_r, XML_id)). Without
+        // this attribute the file looks structurally complete but Excel rejects it.
+        cacheDef.Id = cachePart.GetIdOfPart(recordsPart);
         cachePart.PivotCacheDefinition.Save();
 
         // Register in workbook's PivotCaches
@@ -98,8 +116,251 @@ internal static class PivotTableHelper
         pivotPart.PivotTableDefinition = pivotDef;
         pivotPart.PivotTableDefinition.Save();
 
+        // 6. RENDER the pivot output into the target sheet's <sheetData>.
+        //
+        // This is the critical step that distinguishes a "valid pivot file Excel
+        // accepts" from a "pivot file Excel actually displays". Excel does NOT
+        // recompute pivots from cache on open — it reads the rendered cells
+        // directly from sheetData, exactly like any other range. We verified this
+        // by inspecting an Excel-authored sample (excel_authored.xlsx → sheet2.xml):
+        // every aggregated cell is a literal <c><v>200</v></c> element.
+        //
+        // Without this step the pivot opens as an empty drop-down skeleton — the
+        // structure is valid but there is nothing to display. POI / Open XML SDK
+        // suffer from exactly the same limitation; this is the lift that turns
+        // officecli into a real pivot writer rather than a definition-only one.
+        //
+        // For unsupported configurations (multiple row/col fields, multiple data
+        // fields, page filters), the renderer falls back to writing nothing, which
+        // gives Excel an empty sheetData and the same skeleton-only behavior.
+        // Those configs are tracked as a v2 expansion.
+        RenderPivotIntoSheet(
+            targetSheet, position, headers, columnData,
+            rowFields, colFields, valueFields);
+
         // Return 1-based index
         return targetSheet.PivotTableParts.ToList().IndexOf(pivotPart) + 1;
+    }
+
+    // ==================== Pivot Output Renderer ====================
+
+    /// <summary>
+    /// Compute the pivot's aggregation matrix from columnData and write the
+    /// rendered cells into targetSheet's SheetData. Mirrors what real Excel writes
+    /// on save: literal cells with computed values, NOT a definition that Excel
+    /// recomputes on open.
+    ///
+    /// Supported (v1): exactly 1 row field × 1 col field × 1 data field, with
+    /// aggregator in {sum, count, average, min, max}, plus row/column/grand totals.
+    /// Other configurations leave sheetData empty and emit a stderr warning so
+    /// the file still validates and opens, just without rendered data.
+    ///
+    /// Layout (verified against Excel-authored sample):
+    ///     Row 0:  [data caption] [col field caption]
+    ///     Row 1:  [row field caption] [col label 1] [col label 2] ... [总计]
+    ///     Row 2:  [row label 1]       [v]            [v]              [row total 1]
+    ///     ...
+    ///     Row N:  [总计]              [col total 1] [col total 2] ... [grand total]
+    /// </summary>
+    private static void RenderPivotIntoSheet(
+        WorksheetPart targetSheet, string position,
+        string[] headers, List<string[]> columnData,
+        List<int> rowFieldIndices, List<int> colFieldIndices,
+        List<(int idx, string func, string name)> valueFields)
+    {
+        // v1 limit: exactly one of each. Anything more advanced gets the empty
+        // skeleton fallback. Document the limitation in a stderr warning so the
+        // user knows why their multi-field pivot looks empty.
+        if (rowFieldIndices.Count != 1 || colFieldIndices.Count != 1 || valueFields.Count != 1)
+        {
+            Console.Error.WriteLine(
+                "WARNING: pivot rendering currently supports only 1 row × 1 col × 1 data field. " +
+                "The file will open but the pivot will appear empty. " +
+                "Use Excel's Refresh button to populate it manually.");
+            return;
+        }
+
+        var rowFieldIdx = rowFieldIndices[0];
+        var colFieldIdx = colFieldIndices[0];
+        var (dataFieldIdx, func, dataFieldName) = valueFields[0];
+
+        var rowValues = columnData[rowFieldIdx];
+        var colValues = columnData[colFieldIdx];
+        var dataValues = columnData[dataFieldIdx];
+        var rowFieldName = headers[rowFieldIdx];
+        var colFieldName = headers[colFieldIdx];
+
+        // Unique row/col labels in cache order (alphabetical ordinal). Excel uses
+        // its own column/row sort but the order doesn't affect correctness — only
+        // the visual presentation. Match the cache field order so labels and
+        // pivotField items list stay consistent.
+        var uniqueRows = rowValues.Where(v => !string.IsNullOrEmpty(v)).Distinct()
+            .OrderBy(v => v, StringComparer.Ordinal).ToList();
+        var uniqueCols = colValues.Where(v => !string.IsNullOrEmpty(v)).Distinct()
+            .OrderBy(v => v, StringComparer.Ordinal).ToList();
+
+        // Bucket source values into (rowLabel, colLabel) cells. We collect all
+        // raw values into lists so the aggregator can be applied uniformly per
+        // cell, per row total, per col total, and over the full set for the grand
+        // total. This matches LibreOffice's "average over all values, not avg of
+        // avgs" semantics (dptabres.cxx ScDPAggData::Update).
+        var buckets = new Dictionary<(string r, string c), List<double>>();
+        var allValues = new List<double>();
+        for (int i = 0; i < dataValues.Length; i++)
+        {
+            var rv = rowValues.Length > i ? rowValues[i] : null;
+            var cv = colValues.Length > i ? colValues[i] : null;
+            if (string.IsNullOrEmpty(rv) || string.IsNullOrEmpty(cv)) continue;
+            if (!double.TryParse(dataValues[i], System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var num)) continue;
+
+            var key = (rv, cv);
+            if (!buckets.TryGetValue(key, out var list))
+            {
+                list = new List<double>();
+                buckets[key] = list;
+            }
+            list.Add(num);
+            allValues.Add(num);
+        }
+
+        double Reduce(IEnumerable<double> values)
+        {
+            // Match LibreOffice's ScDPAggData (dptabres.cxx) aggregator semantics.
+            // Empty input returns 0 for sum/count, else the first available value.
+            var arr = values as double[] ?? values.ToArray();
+            if (arr.Length == 0) return 0;
+            return func.ToLowerInvariant() switch
+            {
+                "sum" => arr.Sum(),
+                "count" => arr.Length,
+                "average" or "avg" => arr.Average(),
+                "min" => arr.Min(),
+                "max" => arr.Max(),
+                _ => arr.Sum()
+            };
+        }
+
+        // Build the matrix of cell values + row/col/grand totals.
+        var matrix = new double?[uniqueRows.Count, uniqueCols.Count];
+        var rowTotals = new double[uniqueRows.Count];
+        var colTotals = new double[uniqueCols.Count];
+        for (int r = 0; r < uniqueRows.Count; r++)
+        {
+            var rowAll = new List<double>();
+            for (int c = 0; c < uniqueCols.Count; c++)
+            {
+                if (buckets.TryGetValue((uniqueRows[r], uniqueCols[c]), out var bucket) && bucket.Count > 0)
+                {
+                    matrix[r, c] = Reduce(bucket);
+                    rowAll.AddRange(bucket);
+                }
+            }
+            rowTotals[r] = Reduce(rowAll);
+        }
+        for (int c = 0; c < uniqueCols.Count; c++)
+        {
+            var colAll = new List<double>();
+            for (int r = 0; r < uniqueRows.Count; r++)
+            {
+                if (buckets.TryGetValue((uniqueRows[r], uniqueCols[c]), out var bucket))
+                    colAll.AddRange(bucket);
+            }
+            colTotals[c] = Reduce(colAll);
+        }
+        var grandTotal = Reduce(allValues);
+
+        // ===== Write cells =====
+        // Anchor + grid layout. The pivot occupies (1 + cols + 1) columns wide
+        // (row labels + data cols + grand total) and (2 + rows + 1) rows tall
+        // (caption row + header row + data rows + grand total row).
+        var (anchorCol, anchorRow) = ParseCellRef(position);
+        var anchorColIdx = ColToIndex(anchorCol);
+        var totalColLabel = "总计";
+
+        // Make sure the worksheet has a SheetData container we can mutate. New
+        // sheets created via officecli already have an empty <sheetData/>, but
+        // be defensive in case a future caller hands us a barebones part.
+        var ws = targetSheet.Worksheet
+            ?? throw new InvalidOperationException("Target worksheet has no Worksheet element");
+        var sheetData = ws.GetFirstChild<SheetData>();
+        if (sheetData == null)
+        {
+            sheetData = new SheetData();
+            ws.AppendChild(sheetData);
+        }
+
+        // Row 0 (caption row): data field name in row-label column,
+        //                       col field name in first data column.
+        var captionRow = new Row { RowIndex = (uint)anchorRow };
+        captionRow.AppendChild(MakeStringCell(anchorColIdx, anchorRow, dataFieldName));
+        captionRow.AppendChild(MakeStringCell(anchorColIdx + 1, anchorRow, colFieldName));
+        sheetData.AppendChild(captionRow);
+
+        // Row 1 (header row): row field caption + col labels + 总计.
+        var headerRowIdx = anchorRow + 1;
+        var headerRow = new Row { RowIndex = (uint)headerRowIdx };
+        headerRow.AppendChild(MakeStringCell(anchorColIdx, headerRowIdx, rowFieldName));
+        for (int c = 0; c < uniqueCols.Count; c++)
+            headerRow.AppendChild(MakeStringCell(anchorColIdx + 1 + c, headerRowIdx, uniqueCols[c]));
+        headerRow.AppendChild(MakeStringCell(anchorColIdx + 1 + uniqueCols.Count, headerRowIdx, totalColLabel));
+        sheetData.AppendChild(headerRow);
+
+        // Data rows: row label + per-col values + row total.
+        for (int r = 0; r < uniqueRows.Count; r++)
+        {
+            var rowIdx = anchorRow + 2 + r;
+            var dataRow = new Row { RowIndex = (uint)rowIdx };
+            dataRow.AppendChild(MakeStringCell(anchorColIdx, rowIdx, uniqueRows[r]));
+            for (int c = 0; c < uniqueCols.Count; c++)
+            {
+                var v = matrix[r, c];
+                // Empty cells: skip rather than writing <c/> with no value, so
+                // Excel renders a blank cell (matching its own behavior on
+                // missing pivot intersections).
+                if (v.HasValue)
+                    dataRow.AppendChild(MakeNumericCell(anchorColIdx + 1 + c, rowIdx, v.Value));
+            }
+            dataRow.AppendChild(MakeNumericCell(anchorColIdx + 1 + uniqueCols.Count, rowIdx, rowTotals[r]));
+            sheetData.AppendChild(dataRow);
+        }
+
+        // Grand total row.
+        var grandRowIdx = anchorRow + 2 + uniqueRows.Count;
+        var grandRow = new Row { RowIndex = (uint)grandRowIdx };
+        grandRow.AppendChild(MakeStringCell(anchorColIdx, grandRowIdx, totalColLabel));
+        for (int c = 0; c < uniqueCols.Count; c++)
+            grandRow.AppendChild(MakeNumericCell(anchorColIdx + 1 + c, grandRowIdx, colTotals[c]));
+        grandRow.AppendChild(MakeNumericCell(anchorColIdx + 1 + uniqueCols.Count, grandRowIdx, grandTotal));
+        sheetData.AppendChild(grandRow);
+
+        ws.Save();
+    }
+
+    /// <summary>
+    /// Build an inline-string cell. We use inline strings (t="inlineStr" + &lt;is&gt;)
+    /// rather than the SharedStringTable because the renderer is self-contained
+    /// and adding entries to the SST would require coordinating with whatever
+    /// other handler code touches the workbook's strings — out of scope for v1.
+    /// </summary>
+    private static Cell MakeStringCell(int colIdx, int rowIdx, string text)
+    {
+        return new Cell
+        {
+            CellReference = $"{IndexToCol(colIdx)}{rowIdx}",
+            DataType = CellValues.InlineString,
+            InlineString = new InlineString(new Text(text ?? string.Empty))
+        };
+    }
+
+    /// <summary>Numeric cell with the value serialized using invariant culture.</summary>
+    private static Cell MakeNumericCell(int colIdx, int rowIdx, double value)
+    {
+        return new Cell
+        {
+            CellReference = $"{IndexToCol(colIdx)}{rowIdx}",
+            CellValue = new CellValue(value.ToString("R", System.Globalization.CultureInfo.InvariantCulture))
+        };
     }
 
     // ==================== Source Data Reader ====================
@@ -183,18 +444,32 @@ internal static class PivotTableHelper
 
     // ==================== Cache Definition Builder ====================
 
-    private static PivotCacheDefinition BuildCacheDefinition(
-        string sourceSheetName, string sourceRef,
-        string[] headers, List<string[]> columnData)
+    private static (PivotCacheDefinition def, bool[] fieldNumeric, Dictionary<string, int>[] fieldValueIndex)
+        BuildCacheDefinition(
+            string sourceSheetName, string sourceRef,
+            string[] headers, List<string[]> columnData)
     {
         var recordCount = columnData.Count > 0 ? columnData[0].Length : 0;
 
+        // refreshOnLoad=1 tells Excel to re-render the pivot from the cache when the
+        // file is opened. We need this because officecli (a pure DOM library) does NOT
+        // have a pivot computation engine — we cannot materialize the rendered cells
+        // into sheetData ourselves. Real Excel/LibreOffice DO write rendered cells on
+        // save (verified against pivot5.xlsx and pivot_dark1.xlsx fixtures), so opening
+        // their files shows data immediately. Without refreshOnLoad, our pivot-only
+        // sheet would render empty even though the cache and definition are valid.
+        //
+        // Trade-off: Excel may prompt for trust before refreshing, and consumers that
+        // do not implement refresh (POI, third-party parsers) will still see an empty
+        // sheet. The proper long-term fix is a built-in render engine; this flag is
+        // the lowest-cost workaround until that lands.
         var cacheDef = new PivotCacheDefinition
         {
             CreatedVersion = 3,
             MinRefreshableVersion = 3,
             RefreshedVersion = 3,
-            RecordCount = (uint)recordCount
+            RecordCount = (uint)recordCount,
+            RefreshOnLoad = true
         };
 
         // CacheSource -> WorksheetSource
@@ -206,31 +481,53 @@ internal static class PivotTableHelper
         });
         cacheDef.AppendChild(cacheSource);
 
-        // CacheFields
+        // CacheFields — also build per-field metadata used to write records:
+        //   - fieldNumeric[i]: true if field i is numeric (records emit <n v=".."/>)
+        //   - fieldValueIndex[i]: value→sharedItems index map for non-numeric fields
+        //     (records emit <x v="N"/> referencing this index)
+        var fieldNumeric = new bool[headers.Length];
+        var fieldValueIndex = new Dictionary<string, int>[headers.Length];
+
         var cacheFields = new CacheFields { Count = (uint)headers.Length };
         for (int i = 0; i < headers.Length; i++)
         {
             var fieldName = string.IsNullOrEmpty(headers[i]) ? $"Column{i + 1}" : headers[i];
             var values = i < columnData.Count ? columnData[i] : Array.Empty<string>();
-            cacheFields.AppendChild(BuildCacheField(fieldName, values));
+            cacheFields.AppendChild(BuildCacheField(fieldName, values, out fieldNumeric[i], out fieldValueIndex[i]));
         }
         cacheDef.AppendChild(cacheFields);
 
-        return cacheDef;
+        return (cacheDef, fieldNumeric, fieldValueIndex);
     }
 
-    private static CacheField BuildCacheField(string name, string[] values)
+    private static CacheField BuildCacheField(
+        string name, string[] values, out bool isNumeric, out Dictionary<string, int> valueIndex)
     {
         var field = new CacheField { Name = name, NumberFormatId = 0u };
-        var uniqueValues = values.Distinct().OrderBy(v => v).ToList();
-        var allNumeric = values.Length > 0 && values.All(v =>
+        isNumeric = values.Length > 0 && values.All(v =>
             string.IsNullOrEmpty(v) || double.TryParse(v, System.Globalization.CultureInfo.InvariantCulture, out _));
+        valueIndex = new Dictionary<string, int>(StringComparer.Ordinal);
 
-        var sharedItems = new SharedItems { Count = (uint)uniqueValues.Count };
+        var sharedItems = new SharedItems();
 
-        if (allNumeric && values.Any(v => !string.IsNullOrEmpty(v)))
+        // MIXED strategy — verified against Microsoft's own pivot5.xlsx (in
+        // OPEN-XML-SDK test fixtures, authored by real Excel):
+        //
+        //   • Numeric fields: emit ONLY containsNumber/minValue/maxValue metadata,
+        //     no enumerated items, no count attribute. Records reference values
+        //     directly via <n v="..."/>.
+        //   • String fields: enumerate every unique value as <s v="..."/> with
+        //     count attribute. Records reference them by index via <x v="N"/>.
+        //
+        // I previously experimented with LibreOffice's uniform strategy (always
+        // enumerate, always index-reference), but Microsoft's actual format is
+        // the mixed one — and matching the real Excel format is the safest bet
+        // for round-trip compatibility. The uniform strategy is technically valid
+        // OOXML but introduces an asymmetry that Excel handles less reliably
+        // (numeric data fields with item enumeration have failed to render in
+        // testing, even though the file passes schema validation).
+        if (isNumeric && values.Any(v => !string.IsNullOrEmpty(v)))
         {
-            // Numeric field — set metadata but don't enumerate all values
             var nums = values.Where(v => !string.IsNullOrEmpty(v))
                 .Select(v => double.Parse(v, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
             sharedItems.ContainsSemiMixedTypes = false;
@@ -238,17 +535,87 @@ internal static class PivotTableHelper
             sharedItems.ContainsNumber = true;
             sharedItems.MinValue = nums.Min();
             sharedItems.MaxValue = nums.Max();
-            sharedItems.Count = 0;
+            // No items enumerated, no count — records emit <n v="..."/> directly.
         }
         else
         {
-            // String field — enumerate shared items
-            foreach (var v in uniqueValues)
+            var uniqueValues = values
+                .Where(v => !string.IsNullOrEmpty(v))
+                .Distinct()
+                .OrderBy(v => v, StringComparer.Ordinal)
+                .ToList();
+            sharedItems.Count = (uint)uniqueValues.Count;
+            for (int i = 0; i < uniqueValues.Count; i++)
+            {
+                var v = uniqueValues[i];
                 sharedItems.AppendChild(new StringItem { Val = v });
+                if (!valueIndex.ContainsKey(v))
+                    valueIndex[v] = i;
+            }
         }
 
         field.AppendChild(sharedItems);
         return field;
+    }
+
+    // ==================== Cache Records Builder ====================
+
+    /// <summary>
+    /// Build pivotCacheRecords using the MIXED strategy verified against Microsoft's
+    /// own pivot5.xlsx test fixture:
+    ///
+    ///   <r>
+    ///     <x v="0"/>     <!-- string field, references sharedItems[0] -->
+    ///     <x v="2"/>     <!-- string field, references sharedItems[2] -->
+    ///     <n v="702"/>   <!-- numeric field, value written directly -->
+    ///     <m/>           <!-- empty/missing value -->
+    ///   </r>
+    ///
+    /// String fields use indexed references (<x v="N"/>) into the per-field
+    /// sharedItems list; numeric fields use NumberItem (<n v="V"/>) directly,
+    /// because their cacheField only carries min/max metadata, not enumerated items.
+    /// </summary>
+    private static PivotCacheRecords BuildCacheRecords(
+        List<string[]> columnData, bool[] fieldNumeric, Dictionary<string, int>[] fieldValueIndex)
+    {
+        var recordCount = columnData.Count > 0 ? columnData[0].Length : 0;
+        var fieldCount = columnData.Count;
+        var records = new PivotCacheRecords { Count = (uint)recordCount };
+
+        for (int r = 0; r < recordCount; r++)
+        {
+            var record = new PivotCacheRecord();
+            for (int f = 0; f < fieldCount; f++)
+            {
+                var v = columnData[f][r];
+                if (string.IsNullOrEmpty(v))
+                {
+                    record.AppendChild(new MissingItem());
+                }
+                else if (fieldNumeric[f])
+                {
+                    record.AppendChild(new NumberItem
+                    {
+                        Val = double.Parse(v, System.Globalization.CultureInfo.InvariantCulture)
+                    });
+                }
+                else if (fieldValueIndex[f].TryGetValue(v, out var idx))
+                {
+                    // FieldItem = <x v="N"/> in OpenXml SDK, references sharedItems[N].
+                    record.AppendChild(new FieldItem { Val = (uint)idx });
+                }
+                else
+                {
+                    // Defensive: value missing from the per-field index map. Should
+                    // not occur since the map is built from the same columnData;
+                    // emit <m/> rather than a dangling reference.
+                    record.AppendChild(new MissingItem());
+                }
+            }
+            records.AppendChild(record);
+        }
+
+        return records;
     }
 
     // ==================== Pivot Table Definition Builder ====================
@@ -277,19 +644,75 @@ internal static class PivotTableHelper
             UseAutoFormatting = true,
             ItemPrintTitles = true,
             MultipleFieldFilters = false,
-            Indent = 0u
+            Indent = 0u,
+            // outline + outlineData are emitted by both Microsoft Excel (pivot5.xlsx)
+            // and LibreOffice (pivot_dark1.xlsx). They select the "outline" layout —
+            // the default presentation where row labels stack into one column. Without
+            // these, Excel falls back to a layout that's not fully wired through and
+            // refuses to render the data area.
+            Outline = true,
+            OutlineData = true
         };
 
         // Use typed property setters to ensure correct schema order
 
-        // Location
+        // Location.ref must be the FULL range covering the pivot's TABLE area (NOT a single
+        // cell, and NOT including any page-filter rows above). Reference: LibreOffice
+        // sc/source/filter/excel/xepivotxml.cxx:1216-1249. The comment there is explicit:
+        //
+        //     // NB: Excel's range does not include page field area (if any).
+        //
+        // Page filters live above the table at the user's anchor row but are NOT part of
+        // <location ref/>; they are described by rowPageCount/colPageCount attributes on
+        // <pivotTableDefinition> instead. We therefore treat `position` as the top-left of
+        // the TABLE area, and the ref range covers only that.
+        //
+        // LibreOffice's defaults for the offsets (when no live render is available):
+        //     firstHeaderRow = 1   // row containing column-field labels
+        //     firstDataRow   = 2   // first row of actual data values
+        //     firstDataCol   = 1   // first column of actual data values
+        //
+        // These constants assume the standard compact/outline layout with one header row
+        // for the column field caption and one row for column-field values. We follow the
+        // same defaults — they are what Excel and Calc both round-trip cleanly.
+        int rowUnique = ProductOfUniqueValues(rowFieldIndices, columnData);
+        int colUnique = ProductOfUniqueValues(colFieldIndices, columnData);
+        int rowLabelCols = Math.Max(1, rowFieldIndices.Count);
+        int valueCols = Math.Max(1, colUnique) * Math.Max(1, valueFields.Count);
+        int totalCol = colFieldIndices.Count > 0 ? 1 : 0;
+        int width = rowLabelCols + valueCols + totalCol;
+        // Height: 2 header rows (col-field name + col-field values) + data rows + grand total.
+        // No page-filter rows here — they are excluded from ref by design.
+        int height = (colFieldIndices.Count > 0 ? 2 : 1)
+                   + Math.Max(1, rowUnique)
+                   + 1; // grand total row
+
+        var (anchorCol, anchorRow) = ParseCellRef(position);
+        var anchorColIdx = ColToIndex(anchorCol);
+        var endColIdx = anchorColIdx + width - 1;
+        var endRow = anchorRow + height - 1;
+        var rangeRef = $"{position}:{IndexToCol(endColIdx)}{endRow}";
+
         pivotDef.Location = new Location
         {
-            Reference = position,
+            Reference = rangeRef,
             FirstHeaderRow = 1u,
-            FirstDataRow = 1u,
-            FirstDataColumn = (uint)rowFieldIndices.Count
+            FirstDataRow = 2u,
+            FirstDataColumn = (uint)rowLabelCols
         };
+
+        // Page filters: when present, declare them via rowPageCount/colPageCount on the
+        // pivotTableDefinition (not via location). LibreOffice writes both attributes
+        // unconditionally when there are page fields; rowPageCount = number of page fields,
+        // colPageCount = 1 (single column of page-field labels). See xepivotxml.cxx:1243.
+        // Open XML SDK has no typed property for these, so we set attributes directly.
+        if (filterFieldIndices.Count > 0)
+        {
+            pivotDef.SetAttribute(new OpenXmlAttribute(
+                "rowPageCount", "", filterFieldIndices.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            pivotDef.SetAttribute(new OpenXmlAttribute(
+                "colPageCount", "", "1"));
+        }
 
         // PivotFields — one per source column
         var pivotFields = new PivotFields { Count = (uint)headers.Length };
@@ -335,6 +758,21 @@ internal static class PivotTableHelper
             pivotDef.RowFields = rf;
         }
 
+        // RowItems — describes the row-label layout. Without this, Excel renders only the
+        // pivot's drop-down chrome but no actual data cells (the layout we observed earlier).
+        // Pattern verified against LibreOffice's pivot_dark1.xlsx test fixture:
+        //   <rowItems count="K+1">
+        //     <i><x/></i>            <-- index 0 (shorthand: omit v attribute)
+        //     <i><x v="1"/></i>      <-- index 1
+        //     ...
+        //     <i t="grand"><x/></i>  <-- grand total row
+        //   </rowItems>
+        // The <x v="N"/> values index into the corresponding pivotField's <items> list,
+        // which we already populate via AppendFieldItems in BuildPivotTableDefinition above.
+        // Single row field only: multi-row-field cartesian-product layout is a v2 concern.
+        if (rowFieldIndices.Count > 0)
+            pivotDef.RowItems = (RowItems)BuildAxisItems(rowFieldIndices, columnData, isRow: true);
+
         // ColumnFields
         if (colFieldIndices.Count > 0)
         {
@@ -343,6 +781,12 @@ internal static class PivotTableHelper
                 cf.AppendChild(new Field { Index = idx });
             pivotDef.ColumnFields = cf;
         }
+
+        // ColumnItems — same shape as RowItems but for the column-label layout.
+        // Even when there are NO column fields, ECMA-376 requires a <colItems> with one
+        // empty <i/> placeholder; LibreOffice's writeRowColumnItems empty-case branch
+        // (xepivotxml.cxx:1008-1014) writes exactly that.
+        pivotDef.ColumnItems = (ColumnItems)BuildAxisItems(colFieldIndices, columnData, isRow: false);
 
         // PageFields (filters)
         if (filterFieldIndices.Count > 0)
@@ -359,6 +803,12 @@ internal static class PivotTableHelper
             var df = new DataFields { Count = (uint)valueFields.Count };
             foreach (var (idx, func, displayName) in valueFields)
             {
+                // BaseField/BaseItem: Excel ignores these when ShowDataAs is normal,
+                // but LibreOffice and Excel both emit them unconditionally on every
+                // dataField (verified against pivot_dark1.xlsx and other LO fixtures).
+                // Following the verified pattern rather than my earlier "omit them"
+                // theory — being closer to what real producers write reduces the risk
+                // of triggering picky consumers.
                 df.AppendChild(new DataField
                 {
                     Name = displayName,
@@ -383,6 +833,83 @@ internal static class PivotTableHelper
         };
 
         return pivotDef;
+    }
+
+    /// <summary>
+    /// Build the &lt;rowItems&gt; or &lt;colItems&gt; layout block. This describes how Excel
+    /// should expand row/column labels in the rendered pivot — without it, Excel shows
+    /// only the pivot's drop-down chrome and no data cells.
+    ///
+    /// Pattern (verified against LibreOffice's pivot_dark1.xlsx):
+    ///   • One axis field with K unique values → K + 1 entries (K data + 1 grand total)
+    ///   • Each entry is &lt;i&gt; + &lt;x v="N"/&gt; where N indexes the pivotField's items
+    ///   • &lt;x/&gt; with no v attribute is shorthand for index 0
+    ///   • Grand total entry: &lt;i t="grand"&gt;&lt;x/&gt;&lt;/i&gt;
+    ///   • Empty axis (no fields) → single empty &lt;i/&gt; placeholder (LibreOffice's
+    ///     writeRowColumnItems empty-case branch in xepivotxml.cxx:1008-1014)
+    ///
+    /// Limitation: only single-axis-field cases are correct. Multi-row-field
+    /// cartesian-product layouts (e.g. row=region+product) need a more involved
+    /// expansion that LibreOffice does at render time. Tracked as v2.
+    /// </summary>
+    private static OpenXmlElement BuildAxisItems(
+        List<int> fieldIndices, List<string[]> columnData, bool isRow)
+    {
+        OpenXmlCompositeElement container = isRow
+            ? new RowItems()
+            : new ColumnItems();
+
+        // Empty axis: write a single empty <i/>. LibreOffice does this unconditionally
+        // when there's nothing to render — Excel needs the placeholder.
+        if (fieldIndices.Count == 0)
+        {
+            container.AppendChild(new RowItem());
+            SetAxisCount(container, 1);
+            return container;
+        }
+
+        // Single field: one <i> per unique value, then a grand-total entry.
+        // Multi-field is not yet supported — fall back to the first field's values
+        // so the file is at least openable; rendering will be incomplete.
+        var fieldIdx = fieldIndices[0];
+        if (fieldIdx < 0 || fieldIdx >= columnData.Count)
+        {
+            container.AppendChild(new RowItem());
+            SetAxisCount(container, 1);
+            return container;
+        }
+
+        var uniqueCount = columnData[fieldIdx]
+            .Where(v => !string.IsNullOrEmpty(v))
+            .Distinct()
+            .Count();
+
+        for (int i = 0; i < uniqueCount; i++)
+        {
+            var item = new RowItem();
+            // <x/> with no v attribute = index 0 (shorthand). LibreOffice uses this
+            // shorthand whenever the index is 0; we mirror that for byte-level fidelity.
+            if (i == 0)
+                item.AppendChild(new MemberPropertyIndex());
+            else
+                item.AppendChild(new MemberPropertyIndex { Val = i });
+            container.AppendChild(item);
+        }
+
+        // Grand total entry — always present in the default layout.
+        var grandTotal = new RowItem { ItemType = ItemValues.Grand };
+        grandTotal.AppendChild(new MemberPropertyIndex());
+        container.AppendChild(grandTotal);
+
+        SetAxisCount(container, uniqueCount + 1);
+        return container;
+    }
+
+    /// <summary>Set the count attribute on RowItems / ColumnItems uniformly.</summary>
+    private static void SetAxisCount(OpenXmlCompositeElement container, int count)
+    {
+        if (container is RowItems ri) ri.Count = (uint)count;
+        else if (container is ColumnItems ci) ci.Count = (uint)count;
     }
 
     private static void AppendFieldItems(PivotField pf, string[] values)
@@ -640,6 +1167,12 @@ internal static class PivotTableHelper
             var df = new DataFields { Count = (uint)valueFields.Count };
             foreach (var (idx, func, displayName) in valueFields)
             {
+                // BaseField/BaseItem: Excel ignores these when ShowDataAs is normal,
+                // but LibreOffice and Excel both emit them unconditionally on every
+                // dataField (verified against pivot_dark1.xlsx and other LO fixtures).
+                // Following the verified pattern rather than my earlier "omit them"
+                // theory — being closer to what real producers write reduces the risk
+                // of triggering picky consumers.
                 df.AppendChild(new DataField
                 {
                     Name = displayName,
@@ -804,5 +1337,37 @@ internal static class PivotTableHelper
         foreach (var c in col.ToUpperInvariant())
             result = result * 26 + (c - 'A' + 1);
         return result;
+    }
+
+    private static string IndexToCol(int index)
+    {
+        // Inverse of ColToIndex (1-based: A=1, Z=26, AA=27, ...)
+        var sb = new System.Text.StringBuilder();
+        while (index > 0)
+        {
+            int rem = (index - 1) % 26;
+            sb.Insert(0, (char)('A' + rem));
+            index = (index - 1) / 26;
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Multiply the cardinality (distinct non-empty values) of each field in the
+    /// given index list. Used to size the pivot table's rendered area for the
+    /// Location.ref range. Returns 1 when the list is empty (so layout math stays
+    /// safe in pivots that have only column fields, only row fields, etc.).
+    /// </summary>
+    private static int ProductOfUniqueValues(List<int> fieldIndices, List<string[]> columnData)
+    {
+        if (fieldIndices.Count == 0) return 1;
+        int product = 1;
+        foreach (var idx in fieldIndices)
+        {
+            if (idx < 0 || idx >= columnData.Count) continue;
+            var unique = columnData[idx].Where(v => !string.IsNullOrEmpty(v)).Distinct().Count();
+            product *= Math.Max(1, unique);
+        }
+        return product;
     }
 }
