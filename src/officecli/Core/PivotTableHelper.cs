@@ -5096,6 +5096,12 @@ internal static class PivotTableHelper
             var func = parts.Length > 1 ? parts[1].Trim().ToLowerInvariant() : "sum";
             var showAs = parts.Length > 2 ? parts[2].Trim().ToLowerInvariant() : "normal";
 
+            // Empty func slot ("Sales:" or "Sales::percent_of_total") is a
+            // common user mistake from optional-segment trailing colons. Treat
+            // as the documented default ("sum") rather than crashing on
+            // func[0] below. This keeps the showAs slot positionally addressable.
+            if (string.IsNullOrEmpty(func)) func = "sum";
+
             int fieldIdx = -1;
             if (int.TryParse(fieldName, out var idx)) fieldIdx = idx;
             else
