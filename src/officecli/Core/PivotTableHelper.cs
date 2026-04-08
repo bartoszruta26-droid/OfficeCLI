@@ -123,7 +123,7 @@ internal static class PivotTableHelper
                 if (!rowFields.Contains(i) && !colFields.Contains(i) && !filterFields.Contains(i)
                     && columnData[i].All(v => double.TryParse(v, System.Globalization.CultureInfo.InvariantCulture, out _)))
                 {
-                    valueFields.Add((i, "sum", $"Sum of {headers[i]}"));
+                    valueFields.Add((i, "sum", "normal", $"Sum of {headers[i]}"));
                     break;
                 }
             }
@@ -455,7 +455,7 @@ internal static class PivotTableHelper
     private static PivotGeometry ComputePivotGeometry(
         string position, List<string[]> columnData,
         List<int> rowFieldIndices, List<int> colFieldIndices,
-        List<(int idx, string func, string name)> valueFields)
+        List<(int idx, string func, string showAs, string name)> valueFields)
     {
         int dataFieldCount = Math.Max(1, valueFields.Count);
         int rowLabelCols = 1; // Compact mode
@@ -671,7 +671,7 @@ internal static class PivotTableHelper
         WorksheetPart targetSheet, string position,
         string[] headers, List<string[]> columnData,
         List<int> rowFieldIndices, List<int> colFieldIndices,
-        List<(int idx, string func, string name)> valueFields,
+        List<(int idx, string func, string showAs, string name)> valueFields,
         List<int>? filterFieldIndices = null,
         uint?[]? columnStyleIds = null)
     {
@@ -819,6 +819,22 @@ internal static class PivotTableHelper
                 colTotals[c, d] = Reduce(colAll, func);
             }
             grandTotals[d] = Reduce(perDataField[d], func);
+        }
+
+        // showDataAs post-processing: transform raw aggregates into ratio /
+        // running-total forms before they hit sheetData. Done per data field
+        // so sum + percent_of_total can coexist in the same pivot. Cell values
+        // for a data field are normalized against the corresponding total,
+        // matching Excel's Show Values As semantics. See ParseShowDataAs for
+        // the supported mode strings.
+        //
+        // Row/col/grand totals are transformed alongside the matrix so the
+        // rendered totals stay consistent with the transformed data cells
+        // (e.g. under percent_of_total, the grand total becomes 1.0).
+        for (int d = 0; d < K; d++)
+        {
+            var mode = valueFields[d].showAs;
+            ApplyShowDataAs1x1(mode, matrix, rowTotals, colTotals, grandTotals, uniqueRows.Count, uniqueCols.Count, d);
         }
 
         // ===== Write cells =====
@@ -1020,7 +1036,7 @@ internal static class PivotTableHelper
         WorksheetPart targetSheet, string position,
         string[] headers, List<string[]> columnData,
         List<int> rowFieldIndices, List<int> colFieldIndices,
-        List<(int idx, string func, string name)> valueFields,
+        List<(int idx, string func, string showAs, string name)> valueFields,
         List<int>? filterFieldIndices,
         uint?[] valueStyleIds)
     {
@@ -1300,7 +1316,7 @@ internal static class PivotTableHelper
         WorksheetPart targetSheet, string position,
         string[] headers, List<string[]> columnData,
         List<int> rowFieldIndices, List<int> colFieldIndices,
-        List<(int idx, string func, string name)> valueFields,
+        List<(int idx, string func, string showAs, string name)> valueFields,
         List<int>? filterFieldIndices,
         uint?[] valueStyleIds)
     {
@@ -1645,7 +1661,7 @@ internal static class PivotTableHelper
         WorksheetPart targetSheet, string position,
         string[] headers, List<string[]> columnData,
         List<int> rowFieldIndices, List<int> colFieldIndices,
-        List<(int idx, string func, string name)> valueFields,
+        List<(int idx, string func, string showAs, string name)> valueFields,
         List<int>? filterFieldIndices,
         uint?[] valueStyleIds)
     {
@@ -2047,7 +2063,7 @@ internal static class PivotTableHelper
         WorksheetPart targetSheet, string position,
         string[] headers, List<string[]> columnData,
         List<int> rowFieldIndices, List<int> colFieldIndices,
-        List<(int idx, string func, string name)> valueFields,
+        List<(int idx, string func, string showAs, string name)> valueFields,
         List<int>? filterFieldIndices,
         uint?[] valueStyleIds)
     {
@@ -2836,7 +2852,7 @@ internal static class PivotTableHelper
         string name, uint cacheId, string position,
         string[] headers, List<string[]> columnData,
         List<int> rowFieldIndices, List<int> colFieldIndices,
-        List<int> filterFieldIndices, List<(int idx, string func, string name)> valueFields,
+        List<int> filterFieldIndices, List<(int idx, string func, string showAs, string name)> valueFields,
         string styleName,
         uint?[]? columnNumFmtIds = null)
     {
@@ -3005,7 +3021,7 @@ internal static class PivotTableHelper
         if (valueFields.Count > 0)
         {
             var df = new DataFields { Count = (uint)valueFields.Count };
-            foreach (var (idx, func, displayName) in valueFields)
+            foreach (var (idx, func, showAs, displayName) in valueFields)
             {
                 // BaseField/BaseItem: Excel ignores these when ShowDataAs is normal,
                 // but LibreOffice and Excel both emit them unconditionally on every
@@ -3021,6 +3037,8 @@ internal static class PivotTableHelper
                     BaseField = 0,
                     BaseItem = 0u
                 };
+                var sda = ParseShowDataAs(showAs);
+                if (sda.HasValue) dataField.ShowDataAs = sda.Value;
                 // Inherit the source column's numFmtId so Excel displays
                 // pivot values using the same format as the source (currency,
                 // percent, etc.). DataField.NumberFormatId is the primary
@@ -3984,7 +4002,7 @@ internal static class PivotTableHelper
         if (valueFields.Count > 0)
         {
             var df = new DataFields { Count = (uint)valueFields.Count };
-            foreach (var (idx, func, displayName) in valueFields)
+            foreach (var (idx, func, showAs, displayName) in valueFields)
             {
                 // BaseField/BaseItem: Excel ignores these when ShowDataAs is normal,
                 // but LibreOffice and Excel both emit them unconditionally on every
@@ -4000,6 +4018,8 @@ internal static class PivotTableHelper
                     BaseField = 0,
                     BaseItem = 0u
                 };
+                var sda = ParseShowDataAs(showAs);
+                if (sda.HasValue) dataField.ShowDataAs = sda.Value;
                 if (sourceColumnNumFmtIds != null && idx >= 0 && idx < sourceColumnNumFmtIds.Length
                     && sourceColumnNumFmtIds[idx] is uint nfid)
                 {
@@ -4089,12 +4109,13 @@ internal static class PivotTableHelper
         return elements.Select(getIndex).Where(i => i >= 0).ToList();
     }
 
-    private static List<(int idx, string func, string name)> ReadCurrentDataFields(DataFields? dataFields)
+    private static List<(int idx, string func, string showAs, string name)> ReadCurrentDataFields(DataFields? dataFields)
     {
-        if (dataFields == null) return new List<(int, string, string)>();
+        if (dataFields == null) return new List<(int, string, string, string)>();
         return dataFields.Elements<DataField>().Select(df => (
             idx: (int)(df.Field?.Value ?? 0),
             func: df.Subtotal?.InnerText ?? "sum",
+            showAs: df.ShowDataAs?.InnerText ?? "normal",
             name: df.Name?.Value ?? ""
         )).ToList();
     }
@@ -4134,7 +4155,7 @@ internal static class PivotTableHelper
         return result;
     }
 
-    private static List<(int idx, string func, string name)> ParseValueFieldsWithWarning(
+    private static List<(int idx, string func, string showAs, string name)> ParseValueFieldsWithWarning(
         Dictionary<string, string> props, string key, string[] headers)
     {
         var result = ParseValueFields(props, key, headers);
@@ -4163,19 +4184,24 @@ internal static class PivotTableHelper
         }).Where(i => i >= 0 && i < headers.Length).ToList();
     }
 
-    private static List<(int idx, string func, string name)> ParseValueFields(
+    private static List<(int idx, string func, string showAs, string name)> ParseValueFields(
         Dictionary<string, string> props, string key, string[] headers)
     {
         if (!props.TryGetValue(key, out var value) || string.IsNullOrEmpty(value))
-            return new List<(int, string, string)>();
+            return new List<(int, string, string, string)>();
 
-        var result = new List<(int idx, string func, string name)>();
+        var result = new List<(int idx, string func, string showAs, string name)>();
         foreach (var spec in value.Split(','))
         {
-            // Format: "FieldName:func" or "FieldName" (default sum)
+            // Format: "FieldName" | "FieldName:func" | "FieldName:func:showAs"
+            //   default func    = sum
+            //   default showAs  = normal
+            // showAs accepts: normal | percent_of_total | percent_of_row |
+            //                 percent_of_col | running_total | (+ camelCase aliases)
             var parts = spec.Trim().Split(':');
             var fieldName = parts[0].Trim();
             var func = parts.Length > 1 ? parts[1].Trim().ToLowerInvariant() : "sum";
+            var showAs = parts.Length > 2 ? parts[2].Trim().ToLowerInvariant() : "normal";
 
             int fieldIdx = -1;
             if (int.TryParse(fieldName, out var idx)) fieldIdx = idx;
@@ -4188,10 +4214,32 @@ internal static class PivotTableHelper
             if (fieldIdx >= 0 && fieldIdx < headers.Length)
             {
                 var displayName = $"{char.ToUpper(func[0])}{func[1..]} of {headers[fieldIdx]}";
-                result.Add((fieldIdx, func, displayName));
+                result.Add((fieldIdx, func, showAs, displayName));
             }
         }
         return result;
+    }
+
+    /// <summary>
+    /// Map a user-facing showAs string to the OOXML ShowDataAsValues enum.
+    /// Returns null for "normal" (no-op; DataField element omits the attribute).
+    /// Accepts both snake_case and camelCase forms so users don't get punished
+    /// by the convention split between CLI params (snake) and XML schema (camel).
+    /// </summary>
+    private static ShowDataAsValues? ParseShowDataAs(string showAs)
+    {
+        return showAs.ToLowerInvariant() switch
+        {
+            "" or "normal" => null,
+            "percent_of_total" or "percentoftotal" or "percent" => ShowDataAsValues.PercentOfTotal,
+            "percent_of_row" or "percentofrow" => ShowDataAsValues.PercentOfRaw,
+            "percent_of_col" or "percent_of_column" or "percentofcol" or "percentofcolumn" => ShowDataAsValues.PercentOfColumn,
+            "running_total" or "runningtotal" or "runtotal" => ShowDataAsValues.RunTotal,
+            "difference" or "diff" => ShowDataAsValues.Difference,
+            "percent_diff" or "percentdiff" => ShowDataAsValues.PercentageDifference,
+            "index" => ShowDataAsValues.Index,
+            _ => null,
+        };
     }
 
     private static DataConsolidateFunctionValues ParseSubtotal(string func)
@@ -4275,6 +4323,135 @@ internal static class PivotTableHelper
                 return sq / arr.Length;
             }
             default: return arr.Sum();
+        }
+    }
+
+    /// <summary>
+    /// Apply a showDataAs transform to a 1×1×K pivot matrix for data field d.
+    /// Used by RenderPivotIntoSheet (the 1 row × 1 col × K data inline
+    /// renderer). Other renderers share the same normalization by value
+    /// type but not by matrix layout, so each renderer post-processes its
+    /// own buckets after aggregation.
+    ///
+    /// Supported modes:
+    ///   normal            — no-op
+    ///   percent_of_total  — divide everything by grandTotals[d]
+    ///   percent_of_row    — divide each (r,c) by rowTotals[r] (the whole row shares the divisor)
+    ///   percent_of_col    — divide each (r,c) by colTotals[c]
+    ///   running_total     — in-row cumulative sum across cols, left→right;
+    ///                       rowTotals/grandTotals unchanged (cumulative ends at row total)
+    /// Unknown modes are silently treated as "normal" so new modes added to
+    /// ParseShowDataAs don't explode old renderers.
+    /// </summary>
+    private static void ApplyShowDataAs1x1(
+        string mode, double?[,,] matrix, double[,] rowTotals, double[,] colTotals,
+        double[] grandTotals, int rowCount, int colCount, int d)
+    {
+        switch (mode.ToLowerInvariant())
+        {
+            case "" or "normal":
+                return;
+
+            case "percent_of_total" or "percentoftotal" or "percent":
+            {
+                var gt = grandTotals[d];
+                if (gt == 0) return;
+                for (int r = 0; r < rowCount; r++)
+                {
+                    for (int c = 0; c < colCount; c++)
+                    {
+                        if (matrix[r, c, d].HasValue)
+                            matrix[r, c, d] = matrix[r, c, d]!.Value / gt;
+                    }
+                    rowTotals[r, d] = rowTotals[r, d] / gt;
+                }
+                for (int c = 0; c < colCount; c++)
+                    colTotals[c, d] = colTotals[c, d] / gt;
+                grandTotals[d] = 1.0;
+                return;
+            }
+
+            case "percent_of_row" or "percentofrow":
+            {
+                for (int r = 0; r < rowCount; r++)
+                {
+                    var rt = rowTotals[r, d];
+                    if (rt == 0) continue;
+                    for (int c = 0; c < colCount; c++)
+                    {
+                        if (matrix[r, c, d].HasValue)
+                            matrix[r, c, d] = matrix[r, c, d]!.Value / rt;
+                    }
+                    rowTotals[r, d] = 1.0;
+                }
+                // Col totals and grand lose their direct interpretation under
+                // "percent of row" (they're sums of ratios across heterogeneous
+                // row bases). Excel renders them as the sum of the per-row
+                // ratios across the column, which equals colSum / grandTotal
+                // only if all rows share the same total. Mirror that here:
+                // recompute as "percent of total" for the col and grand cells
+                // so the displayed numbers sum to 100% across each row but
+                // col totals reflect "this col's share of the grand total".
+                var grand = grandTotals[d];
+                if (grand != 0)
+                {
+                    for (int c = 0; c < colCount; c++)
+                        colTotals[c, d] = colTotals[c, d] / grand;
+                    grandTotals[d] = 1.0;
+                }
+                return;
+            }
+
+            case "percent_of_col" or "percent_of_column" or "percentofcol" or "percentofcolumn":
+            {
+                for (int c = 0; c < colCount; c++)
+                {
+                    var ct = colTotals[c, d];
+                    if (ct == 0) continue;
+                    for (int r = 0; r < rowCount; r++)
+                    {
+                        if (matrix[r, c, d].HasValue)
+                            matrix[r, c, d] = matrix[r, c, d]!.Value / ct;
+                    }
+                    colTotals[c, d] = 1.0;
+                }
+                var grand = grandTotals[d];
+                if (grand != 0)
+                {
+                    for (int r = 0; r < rowCount; r++)
+                        rowTotals[r, d] = rowTotals[r, d] / grand;
+                    grandTotals[d] = 1.0;
+                }
+                return;
+            }
+
+            case "running_total" or "runningtotal" or "runtotal":
+            {
+                // In-row cumulative sum across cols, left→right. Cells with
+                // null values count as 0 in the running sum but remain null
+                // in the output so Excel shows blank instead of the previous
+                // cumulative value (matches Excel's "(blank)" behavior).
+                for (int r = 0; r < rowCount; r++)
+                {
+                    double running = 0;
+                    for (int c = 0; c < colCount; c++)
+                    {
+                        if (matrix[r, c, d].HasValue)
+                        {
+                            running += matrix[r, c, d]!.Value;
+                            matrix[r, c, d] = running;
+                        }
+                    }
+                }
+                // Row / col / grand totals are left as-is: running total's
+                // final-column value already equals the row total, and col /
+                // grand totals don't have a natural running interpretation
+                // across rows in Excel's semantics.
+                return;
+            }
+
+            default:
+                return;
         }
     }
 
