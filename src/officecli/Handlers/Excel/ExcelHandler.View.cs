@@ -146,7 +146,16 @@ public partial class ExcelHandler
             }
 
             var formulaInfo = formulaCount > 0 ? $", {formulaCount} formula(s)" : "";
-            sb.AppendLine($"\u251c\u2500\u2500 \"{name}\" ({rowCount} rows \u00d7 {colCount} cols{formulaInfo})");
+
+            // Pivot tables are stored as pivotTableDefinition XML; their rendered cells
+            // are NOT materialized into sheetData (Excel/Calc re-render from pivotCacheRecords
+            // at display time). Without this hint, a pivot-only sheet looks like "0 rows × 0 cols"
+            // and users think it's empty. Surface the pivot count explicitly — same strategy POI
+            // takes via XSSFSheet.getPivotTables(). See also: query pivottable.
+            int pivotCount = worksheetPart.PivotTableParts.Count();
+            var pivotInfo = pivotCount > 0 ? $", {pivotCount} pivot table(s)" : "";
+
+            sb.AppendLine($"\u251c\u2500\u2500 \"{name}\" ({rowCount} rows \u00d7 {colCount} cols{formulaInfo}{pivotInfo})");
         }
 
         return sb.ToString().TrimEnd();
