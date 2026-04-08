@@ -103,6 +103,14 @@ officecli validate <file>             # Validate against OpenXML schema
 | `issues` | Formatting/content/structure problems | `--type format\|content\|structure`, `--limit N` |
 | `text` | Plain text extraction | `--start N --end N`, `--max-lines N` |
 | `annotated` | Text with formatting annotations | |
+| `html` | Static HTML snapshot (.docx/.xlsx/.pptx) — writes to stdout | `--browser` (open in default browser), `--page N` (docx), `--start N --end N` (pptx slide range) |
+
+**`view html` vs `watch`** — both render the same HTML (shared `*.HtmlPreview.cs` renderer). Use `view html` for one-shot snapshots (CI artifacts, archival, diffing, piping to files); use `watch` when you need live refresh or browser-side click-to-select. `view html` needs no server/port.
+
+```bash
+officecli view report.docx html > snapshot.html       # snapshot to file
+officecli view report.docx html --browser             # open in default browser
+```
 
 ### get
 
