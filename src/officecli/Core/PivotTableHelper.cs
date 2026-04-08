@@ -455,7 +455,7 @@ internal static class PivotTableHelper
 
         var pivotDef = BuildPivotTableDefinition(
             pivotName, cacheId, position, headers, columnData,
-            rowFields, colFields, filterFields, valueFields, style, columnNumFmtIds);
+            rowFields, colFields, filterFields, valueFields, style, columnNumFmtIds, dateGroups);
         pivotPart.PivotTableDefinition = pivotDef;
         pivotPart.PivotTableDefinition.Save();
 
@@ -3031,15 +3031,29 @@ internal static class PivotTableHelper
             }
         }
 
+        // Bucket labels must match the canonical names emitted by
+        // ComputeDateGroupBuckets (Qtr1..Qtr4 / Jan..Dec / 1..31) so the
+        // cache's groupItems and the renderer's columnData agree on bucket
+        // identity. Cross-year disambiguation for quarter/month/day is
+        // handled by the year field (if present as a sibling row/col).
         return grouping switch
         {
             "year"    => dt.Year.ToString("D4", System.Globalization.CultureInfo.InvariantCulture),
-            "quarter" => $"{dt.Year:D4}-Q{(dt.Month - 1) / 3 + 1}",
-            "month"   => dt.ToString("yyyy-MM", System.Globalization.CultureInfo.InvariantCulture),
-            "day"     => dt.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+            "quarter" => $"Qtr{(dt.Month - 1) / 3 + 1}",
+            "month"   => MonthShortName(dt.Month),
+            "day"     => dt.Day.ToString(System.Globalization.CultureInfo.InvariantCulture),
             _         => raw,
         };
     }
+
+    private static string MonthShortName(int month)
+        => month switch
+        {
+            1  => "Jan", 2  => "Feb", 3  => "Mar", 4  => "Apr",
+            5  => "May", 6  => "Jun", 7  => "Jul", 8  => "Aug",
+            9  => "Sep", 10 => "Oct", 11 => "Nov", 12 => "Dec",
+            _  => month.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        };
 
     private static string CapitalizeFirst(string s)
         => string.IsNullOrEmpty(s) ? s : char.ToUpperInvariant(s[0]) + s.Substring(1);
@@ -3479,63 +3493,55 @@ internal static class PivotTableHelper
 
     /// <summary>
     /// Compute the ordered list of bucket labels for a given date group spec.
-    /// Ordering is deterministic and matches the display order our renderer
-    /// expects (year: 2024, 2025; quarter: Qtr1, Qtr2, ...; month: 01, 02, ...
-    /// but spanning whichever years are in-range; day: per-day).
+    /// These labels are FIXED across years (matching Excel's native
+    /// behavior): quarter → Qtr1..Qtr4, month → Jan..Dec, day → 1..31.
+    /// Year is the exception: it returns the actual observed years.
     ///
-    /// Excel's quarter / month / day bucket names are FIXED (Qtr1..Qtr4,
-    /// Jan..Dec, 01..31) — they reuse the same bucket across years. But our
-    /// renderer uses ${year}-Q${q} labels (to keep leaf rows unique across
-    /// years in a year+quarter hierarchy). That works because the renderer
-    /// relies on columnData labels, not cache indices, to place cells. The
-    /// cache's groupItems content is only read by Excel for interactive
-    /// drill-down (which we don't need), so any sane label set passes.
+    /// Excel treats quarter/month/day as CATEGORICAL fields — the same
+    /// "Qtr1" bucket applies to all years in the data. Different years of
+    /// the same quarter disambiguate in the rendered pivot via the
+    /// rowItems/colItems (year_idx, quarter_idx) tuple, not via label
+    /// text. Verified against /tmp/date_authored.xlsx where quarters
+    /// enumerated exactly 4 buckets regardless of year range.
+    ///
+    /// This is critical: if we emit non-standard labels like "2024-Q1"
+    /// (which we initially did), Excel's pivot engine crashes when
+    /// parsing month grouping because it expects Jan..Dec format. The
+    /// buckets below are the canonical names Excel writes natively.
     /// </summary>
     private static List<string> ComputeDateGroupBuckets(DateGroupSpec spec)
     {
-        // If we don't have a min/max we can't compute the range — fall back
-        // to an empty list (still valid, just no drill-down items).
-        if (!spec.MinDate.HasValue || !spec.MaxDate.HasValue) return new List<string>();
-        var min = spec.MinDate.Value;
-        var max = spec.MaxDate.Value;
-
         var result = new List<string>();
         switch (spec.Grouping)
         {
             case "year":
-                for (int y = min.Year; y <= max.Year; y++)
+                // Years ARE actual — observed years in the data.
+                if (!spec.MinDate.HasValue || !spec.MaxDate.HasValue) return result;
+                for (int y = spec.MinDate.Value.Year; y <= spec.MaxDate.Value.Year; y++)
                     result.Add(y.ToString("D4", System.Globalization.CultureInfo.InvariantCulture));
                 break;
 
             case "quarter":
-                // Match our renderer's label convention: "yyyy-Q1".
-                for (int y = min.Year; y <= max.Year; y++)
-                {
-                    int startQ = (y == min.Year) ? (min.Month - 1) / 3 + 1 : 1;
-                    int endQ = (y == max.Year) ? (max.Month - 1) / 3 + 1 : 4;
-                    for (int q = startQ; q <= endQ; q++)
-                        result.Add($"{y:D4}-Q{q}");
-                }
+                // Fixed set regardless of year range.
+                result.AddRange(new[] { "Qtr1", "Qtr2", "Qtr3", "Qtr4" });
                 break;
 
             case "month":
-                var monthCursor = new DateTime(min.Year, min.Month, 1);
-                var monthEnd = new DateTime(max.Year, max.Month, 1);
-                while (monthCursor <= monthEnd)
+                // Fixed set. Excel uses 3-letter English month abbreviations
+                // (Jan..Dec) in its native format — verified against Excel's
+                // quarter-grouping output which emits "Qtr1..Qtr4". We follow
+                // the same short-form convention for months.
+                result.AddRange(new[]
                 {
-                    result.Add(monthCursor.ToString("yyyy-MM", System.Globalization.CultureInfo.InvariantCulture));
-                    monthCursor = monthCursor.AddMonths(1);
-                }
+                    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+                });
                 break;
 
             case "day":
-                var dayCursor = min.Date;
-                var dayEnd = max.Date;
-                while (dayCursor <= dayEnd)
-                {
-                    result.Add(dayCursor.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture));
-                    dayCursor = dayCursor.AddDays(1);
-                }
+                // Fixed set — day-of-month 1..31.
+                for (int d = 1; d <= 31; d++)
+                    result.Add(d.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 break;
         }
         return result;
@@ -3643,7 +3649,8 @@ internal static class PivotTableHelper
         List<int> rowFieldIndices, List<int> colFieldIndices,
         List<int> filterFieldIndices, List<(int idx, string func, string showAs, string name)> valueFields,
         string styleName,
-        uint?[]? columnNumFmtIds = null)
+        uint?[]? columnNumFmtIds = null,
+        List<DateGroupSpec>? dateGroups = null)
     {
         var pivotDef = new PivotTableDefinition
         {
@@ -3712,6 +3719,17 @@ internal static class PivotTableHelper
         // no page count attributes). Tracked as a v2 polish item if any consumer
         // turns out to require them.
 
+        // Derived date-group fields need their pivotField items count to
+        // match the FIXED bucket count (month=12, quarter=4, day=31, year=
+        // observed years), not just the values present in the source data.
+        // Excel validates the cache groupItems count against the pivotField
+        // items count and crashes if they mismatch (verified with 'months'
+        // grouping — Excel for Mac hit a hard crash during parser on
+        // item-count mismatch).
+        var derivedFieldByIdx = new Dictionary<int, DateGroupSpec>();
+        if (dateGroups != null)
+            foreach (var g in dateGroups) derivedFieldByIdx[g.DerivedFieldIdx] = g;
+
         // PivotFields — one per source column
         var pivotFields = new PivotFields { Count = (uint)headers.Length };
         for (int i = 0; i < headers.Length; i++)
@@ -3731,20 +3749,30 @@ internal static class PivotTableHelper
             // date-grouped pivot where year bucket values "2024"/"2025" parse
             // as numeric but render as labels — Excel showed only the grand
             // total row instead of the year hierarchy.
+            bool isDerivedDateGroup = derivedFieldByIdx.ContainsKey(i);
             if (rowFieldIndices.Contains(i))
             {
                 pf.Axis = PivotTableAxisValues.AxisRow;
-                AppendFieldItems(pf, values);
+                if (isDerivedDateGroup)
+                    AppendFixedBucketItems(pf, derivedFieldByIdx[i]);
+                else
+                    AppendFieldItems(pf, values);
             }
             else if (colFieldIndices.Contains(i))
             {
                 pf.Axis = PivotTableAxisValues.AxisColumn;
-                AppendFieldItems(pf, values);
+                if (isDerivedDateGroup)
+                    AppendFixedBucketItems(pf, derivedFieldByIdx[i]);
+                else
+                    AppendFieldItems(pf, values);
             }
             else if (filterFieldIndices.Contains(i))
             {
                 pf.Axis = PivotTableAxisValues.AxisPage;
-                AppendFieldItems(pf, values);
+                if (isDerivedDateGroup)
+                    AppendFixedBucketItems(pf, derivedFieldByIdx[i]);
+                else
+                    AppendFieldItems(pf, values);
             }
             else if (valueFields.Any(vf => vf.idx == i))
             {
@@ -4517,6 +4545,29 @@ internal static class PivotTableHelper
         for (int i = 0; i < unique.Count; i++)
             items.AppendChild(new Item { Index = (uint)i });
         items.AppendChild(new Item { ItemType = ItemValues.Default }); // grand total
+        pf.AppendChild(items);
+    }
+
+    /// <summary>
+    /// Append pivot field <items> for a derived date-group field. The item
+    /// count MUST match the cache's groupItems count — Excel validates the
+    /// two and crashes (hard parser abort on macOS) when they mismatch.
+    ///
+    /// cache groupItems = N buckets + 2 sentinels
+    /// pivotField items = N + 2 sentinels + 1 grand-total (default)
+    ///
+    /// Item indices run 0..N+1 referencing groupItems directly (including
+    /// the sentinels), then the final <item t="default"/> entry is the
+    /// grand total row/col. Verified against /tmp/date_authored.xlsx.
+    /// </summary>
+    private static void AppendFixedBucketItems(PivotField pf, DateGroupSpec spec)
+    {
+        var buckets = ComputeDateGroupBuckets(spec);
+        int totalGroupItems = buckets.Count + 2; // + leading/trailing sentinels
+        var items = new Items { Count = (uint)(totalGroupItems + 1) };
+        for (int i = 0; i < totalGroupItems; i++)
+            items.AppendChild(new Item { Index = (uint)i });
+        items.AppendChild(new Item { ItemType = ItemValues.Default });
         pf.AppendChild(items);
     }
 
