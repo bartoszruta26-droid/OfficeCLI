@@ -866,7 +866,9 @@ internal static class PivotTableHelper
             if (colFieldIndices.Count > 0)
                 headerRows = dataFieldCount > 1 ? 3 : 2;
             else
-                headerRows = dataFieldCount > 1 ? 2 : 1;
+                // No col fields: renderer always writes 2 header rows (caption + col-label),
+                // plus an extra data-field name row when there are multiple value fields.
+                headerRows = dataFieldCount > 1 ? 3 : 2;
         }
 
         // Grand-totals toggles:
@@ -961,8 +963,9 @@ internal static class PivotTableHelper
     /// Remove every cell in sheetData that falls inside the given pivot range.
     /// Called before re-rendering so stale cells from the previous pivot layout
     /// (e.g. row totals from a wider configuration) do not leak through.
+    /// Also called by ExcelHandler.Remove to clean up rendered cells when a pivot is deleted.
     /// </summary>
-    private static void ClearPivotRangeCells(SheetData sheetData, string rangeRef)
+    internal static void ClearPivotRangeCells(SheetData sheetData, string rangeRef)
     {
         var parts = rangeRef.Split(':');
         if (parts.Length != 2) return;

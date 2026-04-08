@@ -422,8 +422,24 @@ public partial class ExcelHandler
             // workbook-level PivotCache registration after removing the pivot.
             var cachePart = pivotPart.PivotTableCacheDefinitionPart;
 
+            // Capture pivot location before deleting the part so we can erase
+            // the rendered cell data from sheetData. Without this, add→remove
+            // cycles leave orphaned rows in sheetData (duplicate row indices,
+            // unbounded XML growth). CONSISTENCY(pivot-remove-cleanup)
+            var pivotLocationRef = pivotPart.PivotTableDefinition
+                ?.GetFirstChild<DocumentFormat.OpenXml.Spreadsheet.Location>()
+                ?.Reference?.Value;
+
             // Remove the pivot table part itself.
             worksheet.DeletePart(pivotPart);
+
+            // Erase the pivot's rendered cells from sheetData.
+            if (!string.IsNullOrEmpty(pivotLocationRef))
+            {
+                var pivotSd = GetSheet(worksheet).GetFirstChild<DocumentFormat.OpenXml.Spreadsheet.SheetData>();
+                if (pivotSd != null)
+                    OfficeCli.Core.PivotTableHelper.ClearPivotRangeCells(pivotSd, pivotLocationRef);
+            }
 
             // If no other pivot table references this cache, drop the cache
             // definition (and its records) plus the workbook-level PivotCache
