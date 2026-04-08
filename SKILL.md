@@ -66,7 +66,6 @@ officecli close report.docx      # save and release
 officecli create slides.pptx
 officecli add slides.pptx / --type slide --prop title="Q4 Report" --prop background=1A1A2E
 officecli add slides.pptx '/slide[1]' --type shape --prop text="Revenue grew 25%" --prop x=2cm --prop y=5cm --prop font=Arial --prop size=24 --prop color=FFFFFF
-officecli set slides.pptx '/slide[1]' --prop transition=fade --prop advanceTime=3000
 ```
 
 **Word:**
@@ -80,9 +79,7 @@ officecli add report.docx /body --type paragraph --prop text="Revenue increased 
 ```bash
 officecli create data.xlsx
 officecli set data.xlsx /Sheet1/A1 --prop value="Name" --prop bold=true
-officecli set data.xlsx /Sheet1/B1 --prop value="Score" --prop bold=true
 officecli set data.xlsx /Sheet1/A2 --prop value="Alice"
-officecli set data.xlsx /Sheet1/B2 --prop value=95
 ```
 
 ---
@@ -126,20 +123,15 @@ Elements with stable IDs return `@attr=value` paths instead of positional indice
 **Returned path format (output):**
 ```
 /slide[1]/shape[@id=550950021]                    # PPT shape (cNvPr.Id)
-/slide[1]/shape[@id=550950021]/paragraph[1]       # child inherits parent's @id=
 /slide[1]/table[@id=1388430425]/tr[1]/tc[2]       # PPT table
 /body/p[@paraId=1A2B3C4D]                         # Word paragraph
 /comments/comment[@commentId=1]                    # Word comment
-/footnote[@footnoteId=2]                           # Word footnote
-/endnote[@endnoteId=1]                             # Word endnote
-/body/sdt[@sdtId=123456]                           # Word content control
 ```
+Word footnote/endnote/sdt follow the same `@xxxId=` pattern; child elements inherit the parent's `@id=`. Run `officecli <format> get` for the full list.
 
-**All formats accepted as input** — use returned paths directly for subsequent `set`/`remove`:
+**All formats accepted as input** — use returned paths directly for subsequent `set`/`remove`. PPT also accepts `@name=` (e.g. `shape[@name=Title 1]`); positional indices like `shape[2]` still work as fallback.
 ```bash
 officecli set slides.pptx '/slide[1]/shape[@id=550950021]' --prop bold=true
-officecli set slides.pptx '/slide[1]/shape[@name=Title 1]' --prop text="New"   # @name= also works (PPT)
-officecli set slides.pptx '/slide[1]/shape[2]' --prop color=red                # positional still works
 ```
 
 Elements without stable IDs (slide, paragraph, run, tr/tc, row) use positional indices as fallback.
@@ -246,9 +238,7 @@ officecli mark report.docx /body/p[7] --prop find="teh"  --prop tofix="the"  --p
 
 # 2. Review — human eyeballs the browser highlights, optionally unmarks bad proposals
 # 3. Apply — pipeline reads accepted marks and runs real set commands
-#    `.marks // []` is defensive: if the watch died mid-pipeline, get-marks
-#    still emits {version:0, marks:[], error:"..."} so jq sees an empty list
-#    instead of crashing on null. Check `$?` afterwards if you need to abort.
+#    (`.marks // []` defends against the watch dying mid-pipeline; see note below)
 officecli get-marks report.docx --json \
   | jq -r '(.marks // []) | .[] | select(.tofix != null) | [.path, .find, .tofix] | @tsv' \
   | while IFS=$'\t' read -r path find tofix; do
@@ -259,11 +249,7 @@ officecli get-marks report.docx --json \
 officecli get-marks report.docx --json | jq '(.marks // []) | .[] | {find, stale}'
 ```
 
-> **Perf note:** each standalone `officecli set` (or `add`/`remove`) costs ~3 s end-to-end on a non-trivial deck because it forks a process, opens the file, mutates, and saves on every call — independent of whether `watch` is running. For loops of more than ~3 mutations, prefer one of:
-> - `officecli batch <file>` with all the ops in a single JSON payload (one open/save cycle), or
-> - `officecli open <file>` … many ops … `officecli close <file>` (resident mode keeps the document in memory across commands).
->
-> A 20-shape `set` loop drops from ~67 s to under 1 s with either approach.
+> **Perf:** apply loops like the one above are exactly the case the **Performance: Resident Mode** section above warns about — for >3 mutations, wrap them in `batch` or `open`/`close`. A 20-shape `set` loop drops from ~67 s to under 1 s.
 
 All mark commands support `--json`. Server rejections produce a non-zero exit + error envelope. Even on error, `get-marks --json` always emits a `{version, marks, error?}` shape so the canonical apply pipeline above never crashes on `null`. Check the `error` field if you need to fail fast.
 
@@ -296,43 +282,30 @@ Run `officecli <format> set` for all settable elements. Run `officecli <format> 
 Use `find=` with `set` to target specific text within a paragraph (or broader scope) for formatting or replacement. The matched text is automatically split into its own run(s). Add `regex=true` for regex matching. Format props are separate `--prop` flags — do NOT nest them (e.g. `--prop bold=true`, not `--prop format=bold:true`).
 
 ```bash
-# Format matched text (auto-splits runs)
-officecli set doc.docx '/body/p[1]' --prop find=weather --prop highlight=yellow
-officecli set doc.docx '/body/p[1]' --prop find=weather --prop bold=true --prop color=red
+# Format matched text (auto-splits runs) — combine any format props
+officecli set doc.docx '/body/p[1]' --prop find=weather --prop bold=true --prop color=red --prop highlight=yellow
 
 # Regex matching
 officecli set doc.docx '/body/p[1]' --prop 'find=\d+%' --prop regex=true --prop color=red
 
-# Replace text
+# Replace text (use `/` for whole-document scope)
 officecli set doc.docx / --prop find=draft --prop replace=final
 
 # Replace + format
 officecli set doc.docx '/body/p[1]' --prop find=TODO --prop replace=DONE --prop bold=true
 
-# Bulk: color all dates red across all paragraphs
-officecli set doc.docx / --prop 'find=\d{4}-\d{2}-\d{2}' --prop regex=true --prop color=red
-
 # Replace in header
 officecli set doc.docx '/header[1]' --prop find=Draft --prop replace=Final
 ```
 
-**PPT find works the same way:**
+**PPT find works the same way** — same props, same behavior; just swap paths to `/slide[N]/shape[M]` (or `/slide[N]/table[M]`):
 
 ```bash
-# Format matched text
-officecli set slides.pptx '/slide[1]/shape[1]' --prop find=weather --prop bold=true --prop color=red
-
-# Regex
-officecli set slides.pptx '/slide[1]/shape[1]' --prop 'find=\d+%' --prop regex=true --prop color=red
-
-# Replace across all slides
+# Cross-slide replace
 officecli set slides.pptx / --prop find=draft --prop replace=final
 
-# Replace + format
+# Single-shape replace + format
 officecli set slides.pptx '/slide[1]/shape[1]' --prop find=TODO --prop replace=DONE --prop bold=true
-
-# Replace in table
-officecli set slides.pptx '/slide[1]/table[1]' --prop find=old --prop replace=new
 ```
 
 Path controls search scope: `/` = all slides, `/slide[N]` = single slide, `/slide[N]/shape[M]` = single shape, `/slide[N]/table[M]` = table, `/slide[N]/notes` = notes pane.
@@ -400,14 +373,11 @@ officecli add doc.docx '/body/p[1]' --type run --before find:weather --prop text
 - Inline types (run, picture, hyperlink...) insert within the paragraph
 - Block types (table, paragraph) auto-split the paragraph and insert between the two halves
 
-**PPT text-anchored insert** (inline only):
+**PPT text-anchored insert** — same as Word, but PPT only supports **inline** types (`run`); block-type insertion is not supported.
 
 ```bash
 officecli add slides.pptx '/slide[1]/shape[1]' --type run --after find:weather --prop text=" (sunny)"
-officecli add slides.pptx '/slide[1]/shape[1]' --type run --before find:weather --prop text="["
 ```
-
-PPT only supports inline types (run) with `find:` anchors — block-type insertion is not supported.
 
 **Clone:** `officecli add <file> / --from '/slide[1]'` — copies with all cross-part relationships.
 
