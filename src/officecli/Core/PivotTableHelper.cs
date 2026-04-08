@@ -569,8 +569,12 @@ internal static class PivotTableHelper
         pivotPart.AddPart(cachePart);
 
         string pivotName;
-        if (properties.TryGetValue("name", out var explicitName) && !string.IsNullOrEmpty(explicitName))
+        if (properties.TryGetValue("name", out var explicitName) && !string.IsNullOrWhiteSpace(explicitName))
         {
+            // R8-4: whitespace-only names are rejected (trim + whitespace
+            // check). We also Trim before storing so "  MyPivot " doesn't
+            // persist the surrounding noise.
+            explicitName = explicitName.Trim();
             // R6-1: user-supplied name must be unique within the workbook.
             // Throw ArgumentException rather than silently allowing the
             // collision (Excel would auto-rename on open, but the on-disk
@@ -578,6 +582,14 @@ internal static class PivotTableHelper
             if (existingPivotNames.Contains(explicitName))
                 throw new ArgumentException($"Pivot name '{explicitName}' already exists in workbook");
             pivotName = explicitName;
+        }
+        else if (properties.TryGetValue("name", out var wsName) && !string.IsNullOrEmpty(wsName))
+        {
+            // R8-4: name key was provided but contained only whitespace
+            // characters. Reject up front rather than falling through to
+            // the auto-generated default — the user clearly intended a
+            // specific name and a silent rename would mask the bug.
+            throw new ArgumentException("pivot name must not be whitespace-only");
         }
         else
         {
