@@ -16,7 +16,7 @@ namespace OfficeCli.Core;
 /// Non-blocking, fire-and-forget. Silently does nothing if no watch is running.
 /// All pipe I/O is bounded by a timeout to prevent hangs.
 /// </summary>
-public static class WatchNotifier
+internal static class WatchNotifier
 {
     private static readonly TimeSpan PipeTimeout = TimeSpan.FromSeconds(5);
 
@@ -273,7 +273,7 @@ public static class WatchNotifier
 /// <summary>
 /// Message sent from command processes to the watch server via named pipe.
 /// </summary>
-public class WatchMessage
+internal class WatchMessage
 {
     /// <summary>"replace", "add", "remove", or "full"</summary>
     public string Action { get; set; } = "full";
@@ -330,7 +330,7 @@ public class WatchMessage
 }
 
 /// <summary>A single block-level change for Word incremental updates.</summary>
-public class WordPatch
+internal class WordPatch
 {
     /// <summary>"replace", "add", or "remove"</summary>
     public string Op { get; set; } = "";
@@ -349,7 +349,7 @@ internal partial class WatchMessageJsonContext : System.Text.Json.Serialization.
 /// <summary>
 /// Request body for POST /api/selection — list of currently selected element paths.
 /// </summary>
-public class SelectionRequest
+internal class SelectionRequest
 {
     [System.Text.Json.Serialization.JsonPropertyName("paths")]
     public List<string>? Paths { get; set; }

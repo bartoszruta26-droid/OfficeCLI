@@ -17,7 +17,7 @@ namespace OfficeCli.Core;
 /// Receives pre-rendered HTML from command processes via named pipe,
 /// forwards to browsers via SSE.
 /// </summary>
-public class WatchServer : IDisposable
+internal class WatchServer : IDisposable
 {
     private readonly string _filePath;
     private readonly string _pipeName;

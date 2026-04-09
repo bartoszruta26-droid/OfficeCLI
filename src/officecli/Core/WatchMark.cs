@@ -26,7 +26,7 @@ namespace OfficeCli.Core;
 /// a mark goes stale (find no longer hits), tofix is the human hint for
 /// "what should be done about it".
 /// </summary>
-public class WatchMark
+internal class WatchMark
 {
     [JsonPropertyName("id")]
     public string Id { get; set; } = "";
@@ -62,7 +62,7 @@ public class WatchMark
 }
 
 /// <summary>Request payload for the "mark" pipe command.</summary>
-public class MarkRequest
+internal class MarkRequest
 {
     [JsonPropertyName("path")]
     public string Path { get; set; } = "";
@@ -81,7 +81,7 @@ public class MarkRequest
 }
 
 /// <summary>Request payload for the "unmark" pipe command.</summary>
-public class UnmarkRequest
+internal class UnmarkRequest
 {
     [JsonPropertyName("path")]
     public string? Path { get; set; }
@@ -97,7 +97,7 @@ public class UnmarkRequest
 /// BUG-BT-001: callers MUST check Error first — an empty Id is not the same
 /// as a null pipe response.
 /// </summary>
-public class MarkResponse
+internal class MarkResponse
 {
     [JsonPropertyName("id")]
     public string Id { get; set; } = "";
@@ -107,7 +107,7 @@ public class MarkResponse
 }
 
 /// <summary>Response payload for "unmark" — returns the removed count or error.</summary>
-public class UnmarkResponse
+internal class UnmarkResponse
 {
     [JsonPropertyName("removed")]
     public int Removed { get; set; }
@@ -133,7 +133,7 @@ public sealed class MarkRejectedException : Exception
 /// a monotonic version counter so clients can CAS on top of the SSE
 /// broadcast stream without missing updates.
 /// </summary>
-public class MarksResponse
+internal class MarksResponse
 {
     [JsonPropertyName("version")]
     public int Version { get; set; }
