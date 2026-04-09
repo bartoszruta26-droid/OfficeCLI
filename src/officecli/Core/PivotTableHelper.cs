@@ -423,6 +423,61 @@ internal static class PivotTableHelper
         public void Dispose() { _rowGrandTotals = _prevRow; _colGrandTotals = _prevCol; }
     }
 
+    // ==================== Subtotals options ====================
+    //
+    // CONSISTENCY(thread-static-pivot-opts): same ThreadStatic precedent as
+    // sort + grand totals. Subtotals (the outer-level group subtotal rows
+    // and columns that appear between groups in 2+ row/col-field pivots)
+    // need to reach item builders, geometry, and every multi-dim renderer.
+    //
+    // OOXML semantics (ECMA-376 § 18.10.1.69 on pivotField):
+    //   defaultSubtotal (default true) — whether this pivot field's axis
+    //                    emits an outer-level subtotal sentinel
+    //                    (<item t="default"/> in pivotField.items).
+    //
+    // v1b scope: only on/off. subtotalTop (position = top vs bottom of
+    // group) is deferred — our renderers always emit subtotals at the top
+    // of each group, and switching position would require reordering the
+    // sheetData write loop. Tracked as v1c.
+    [ThreadStatic] private static bool? _defaultSubtotal;
+
+    private static bool ActiveDefaultSubtotal => _defaultSubtotal ?? true;
+
+    /// <summary>
+    /// Parse subtotals properties into the thread-static scope. Supports:
+    ///   subtotals=on|off|true|false|show|hide|yes|no|1|0
+    ///   defaultSubtotal=true|false   (OOXML-level alias)
+    /// Returns a scope that restores the previous value on Dispose.
+    /// </summary>
+    private static IDisposable PushSubtotalsOptions(Dictionary<string, string> properties)
+    {
+        var prev = _defaultSubtotal;
+
+        if (properties.TryGetValue("subtotals", out var s)
+            || properties.TryGetValue("Subtotals", out s))
+        {
+            switch ((s ?? "").Trim().ToLowerInvariant())
+            {
+                case "on": case "true": case "1": case "yes": case "show":
+                    _defaultSubtotal = true; break;
+                case "off": case "false": case "0": case "no": case "hide": case "none":
+                    _defaultSubtotal = false; break;
+            }
+        }
+
+        if (TryParseBoolProp(properties, "defaultSubtotal", out var ds))
+            _defaultSubtotal = ds;
+
+        return new SubtotalsScope(prev);
+    }
+
+    private sealed class SubtotalsScope : IDisposable
+    {
+        private readonly bool? _prev;
+        public SubtotalsScope(bool? prev) { _prev = prev; }
+        public void Dispose() { _defaultSubtotal = _prev; }
+    }
+
     /// <summary>
     /// Apply axis ordering (ascending/descending) to an OrderBy clause using
     /// the currently-active sort mode. All axis sort sites use this helper.
@@ -586,6 +641,8 @@ internal static class PivotTableHelper
         // options reach item builders, geometry, and every renderer via
         // ActiveRowGrandTotals/ActiveColGrandTotals.
         using var _gtScope = PushGrandTotalsOptions(properties);
+        // CONSISTENCY(thread-static-pivot-opts): same pattern for subtotals.
+        using var _subScope = PushSubtotalsOptions(properties);
 
         // 1. Read source data to build cache
         var (headers, columnData, columnStyleIds) = ReadSourceData(sourceSheet, sourceRef);
@@ -4395,6 +4452,12 @@ internal static class PivotTableHelper
                     AppendFixedBucketItems(pf, derivedFieldByIdx[i]);
                 else
                     AppendFieldItems(pf, values);
+                // CONSISTENCY(subtotals-opts): defaultSubtotal=false on the
+                // pivotField tells Excel this axis field does not contribute
+                // an outer-level subtotal. Only emit the attribute when the
+                // user opted out (default true matches ECMA-376).
+                if (!ActiveDefaultSubtotal)
+                    pf.DefaultSubtotal = false;
             }
             if (valueFields.Any(vf => vf.idx == i))
             {
@@ -5597,6 +5660,8 @@ internal static class PivotTableHelper
         // CONSISTENCY(thread-static-pivot-opts): grand totals options ride
         // through the same ambient scope as sort.
         using var _gtScope = PushGrandTotalsOptions(properties);
+        // CONSISTENCY(thread-static-pivot-opts): same pattern for subtotals.
+        using var _subScope = PushSubtotalsOptions(properties);
 
         var unsupported = new List<string>();
         var pivotDef = pivotPart.PivotTableDefinition;
@@ -5610,6 +5675,21 @@ internal static class PivotTableHelper
             _rowGrandTotals = false;
         if (!_colGrandTotals.HasValue && pivotDef.ColumnGrandTotals?.Value == false)
             _colGrandTotals = false;
+
+        // Seed subtotals sticky state: if any existing row/col pivotField has
+        // DefaultSubtotal=false, assume the user previously turned subtotals off
+        // and the current Set (which didn't re-specify it) should preserve that.
+        if (!_defaultSubtotal.HasValue && pivotDef.PivotFields != null)
+        {
+            foreach (var pf in pivotDef.PivotFields.Elements<PivotField>())
+            {
+                if (pf.DefaultSubtotal?.Value == false)
+                {
+                    _defaultSubtotal = false;
+                    break;
+                }
+            }
+        }
 
         // Collect field-area properties separately — they require a coordinated rebuild
         var fieldAreaProps = new Dictionary<string, string>();
@@ -5722,6 +5802,17 @@ internal static class PivotTableHelper
                     // Already consumed by PushGrandTotalsOptions at the top of
                     // this method. Trigger a re-render so geometry / items /
                     // cells all reflect the new toggle. Mirrors "sort".
+                    if (!fieldAreaProps.ContainsKey("rows") && !fieldAreaProps.ContainsKey("cols")
+                        && !fieldAreaProps.ContainsKey("values") && !fieldAreaProps.ContainsKey("filters")
+                        && !fieldAreaProps.ContainsKey("__sort_only__"))
+                    {
+                        fieldAreaProps["__sort_only__"] = value;
+                    }
+                    break;
+                case "subtotals":
+                case "defaultsubtotal":
+                    // Already consumed by PushSubtotalsOptions at the top of
+                    // this method. Trigger a re-render (mirrors grandtotals).
                     if (!fieldAreaProps.ContainsKey("rows") && !fieldAreaProps.ContainsKey("cols")
                         && !fieldAreaProps.ContainsKey("values") && !fieldAreaProps.ContainsKey("filters")
                         && !fieldAreaProps.ContainsKey("__sort_only__"))
@@ -5920,30 +6011,41 @@ internal static class PivotTableHelper
             // Clear axis and dataField
             pf.Axis = null;
             pf.DataField = null;
+            pf.DefaultSubtotal = null;
             pf.RemoveAllChildren<Items>();
 
             // Determine if this field's cache data is numeric (for Items generation)
             var isNumeric = IsFieldNumeric(cacheFields, i);
 
+            bool onAxis = false;
             if (rowFieldIndices.Contains(i))
             {
                 pf.Axis = PivotTableAxisValues.AxisRow;
                 if (!isNumeric) AppendFieldItemsFromCache(pf, cacheFields, i);
+                onAxis = true;
             }
             else if (colFieldIndices.Contains(i))
             {
                 pf.Axis = PivotTableAxisValues.AxisColumn;
                 if (!isNumeric) AppendFieldItemsFromCache(pf, cacheFields, i);
+                onAxis = true;
             }
             else if (filterFieldIndices.Contains(i))
             {
                 pf.Axis = PivotTableAxisValues.AxisPage;
                 if (!isNumeric) AppendFieldItemsFromCache(pf, cacheFields, i);
+                onAxis = true;
             }
             else if (valueFields.Any(vf => vf.idx == i))
             {
                 pf.DataField = true;
             }
+
+            // CONSISTENCY(subtotals-opts): mirror BuildPivotTableDefinition — the
+            // defaultSubtotal attribute lives on every axis field, gated on the
+            // Set-time scope (seeded from existing state earlier if not passed).
+            if (onAxis && !ActiveDefaultSubtotal)
+                pf.DefaultSubtotal = false;
         }
 
         // Layer 2: Rebuild area reference lists
