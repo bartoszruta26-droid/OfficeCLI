@@ -415,6 +415,25 @@ public partial class ExcelHandler
             }
         }
 
+        // R16-1: expose pivottable children so Get /Sheet1 lists them.
+        // CONSISTENCY(sheet-children): same pattern as chart children above.
+        if (worksheetPart != null)
+        {
+            var pivotParts = worksheetPart.PivotTableParts.ToList();
+            for (int i = 0; i < pivotParts.Count; i++)
+            {
+                var ptNode = new DocumentNode
+                {
+                    Path = $"/{sheetName}/pivottable[{i + 1}]",
+                    Type = "pivottable"
+                };
+                var pivotDef = pivotParts[i].PivotTableDefinition;
+                if (pivotDef != null)
+                    Core.PivotTableHelper.ReadPivotTableProperties(pivotDef, ptNode, pivotParts[i]);
+                children.Add(ptNode);
+            }
+        }
+
         return children;
     }
 
