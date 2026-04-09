@@ -153,13 +153,27 @@ public partial class WordHandler
         imagePart.FeedData(imgStream);
         var relId = mainPart.GetIdOfPart(imagePart);
 
-        // Determine dimensions (default: 6 inches wide, auto height)
-        long cxEmu = 5486400; // 6 inches in EMUs (914400 * 6)
-        long cyEmu = 3657600; // 4 inches default
-        if (properties.TryGetValue("width", out var widthStr))
-            cxEmu = ParseEmu(widthStr);
-        if (properties.TryGetValue("height", out var heightStr))
-            cyEmu = ParseEmu(heightStr);
+        // Determine dimensions with auto aspect ratio
+        bool hasExplicitWidth = properties.TryGetValue("width", out var widthStr);
+        bool hasExplicitHeight = properties.TryGetValue("height", out var heightStr);
+        long cxEmu = hasExplicitWidth ? ParseEmu(widthStr!) : 5486400; // default: 6 inches
+        long cyEmu = hasExplicitHeight ? ParseEmu(heightStr!) : 3657600; // default: 4 inches
+
+        // Auto-calculate missing dimension from image pixel aspect ratio
+        if (!hasExplicitWidth || !hasExplicitHeight)
+        {
+            var dims = OfficeCli.Core.ImageSource.TryGetDimensions(imgStream);
+            if (dims is { Width: > 0, Height: > 0 })
+            {
+                var (pixW, pixH) = dims.Value;
+                if (hasExplicitWidth)
+                    cyEmu = (long)(cxEmu * (double)pixH / pixW);
+                else if (hasExplicitHeight)
+                    cxEmu = (long)(cyEmu * (double)pixW / pixH);
+                else
+                    cyEmu = (long)(cxEmu * (double)pixH / pixW);
+            }
+        }
 
         var altText = properties.GetValueOrDefault("alt", Path.GetFileName(imgPath));
 
@@ -188,10 +202,19 @@ public partial class WordHandler
         Paragraph imgPara;
         if (parent is Paragraph existingPara)
         {
-            existingPara.AppendChild(imgRun);
+            var runCount = existingPara.Elements<Run>().Count();
+            if (index.HasValue && index.Value < runCount)
+            {
+                var refRun = existingPara.Elements<Run>().ElementAt(index.Value);
+                existingPara.InsertBefore(imgRun, refRun);
+            }
+            else
+            {
+                existingPara.AppendChild(imgRun);
+            }
             imgPara = existingPara;
-            var imgRunCount = existingPara.Elements<Run>().Count();
-            resultPath = $"{parentPath}/r[{imgRunCount}]";
+            var imgRunIdx = existingPara.Elements<Run>().ToList().IndexOf(imgRun) + 1;
+            resultPath = $"{parentPath}/r[{imgRunIdx}]";
         }
         else if (parent is TableCell imgCell)
         {
