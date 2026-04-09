@@ -4576,6 +4576,11 @@ internal static class PivotTableHelper
             .Distinct()
             .Count();
 
+        // CONSISTENCY(grand-totals): emit the t="grand" sentinel entries only
+        // when the corresponding axis toggle is on. rowItems' grand = bottom row
+        // = _colGrandTotals; colItems' grand = right column = _rowGrandTotals.
+        bool emitGrand = isRow ? ActiveColGrandTotals : ActiveRowGrandTotals;
+
         // Multi-data on column axis: each col label gets K entries, then K grand totals.
         // The first entry per col label has TWO <x> children (col index + data field 0);
         // subsequent entries use r="1" to repeat the col index and bump i to the data
@@ -4609,16 +4614,21 @@ internal static class PivotTableHelper
                 }
             }
 
-            // Grand totals: K entries marked t="grand", with i=d for d>0.
-            for (int d = 0; d < dataFieldCount; d++)
+            int extra = 0;
+            if (emitGrand)
             {
-                var gt = new RowItem { ItemType = ItemValues.Grand };
-                if (d > 0) gt.Index = (uint)d;
-                gt.AppendChild(new MemberPropertyIndex());
-                container.AppendChild(gt);
+                // Grand totals: K entries marked t="grand", with i=d for d>0.
+                for (int d = 0; d < dataFieldCount; d++)
+                {
+                    var gt = new RowItem { ItemType = ItemValues.Grand };
+                    if (d > 0) gt.Index = (uint)d;
+                    gt.AppendChild(new MemberPropertyIndex());
+                    container.AppendChild(gt);
+                }
+                extra = dataFieldCount;
             }
 
-            SetAxisCount(container, uniqueCount * dataFieldCount + dataFieldCount);
+            SetAxisCount(container, uniqueCount * dataFieldCount + extra);
             return container;
         }
 
@@ -4633,12 +4643,18 @@ internal static class PivotTableHelper
             container.AppendChild(item);
         }
 
-        // Grand total entry — always present in the default layout.
-        var grandTotal = new RowItem { ItemType = ItemValues.Grand };
-        grandTotal.AppendChild(new MemberPropertyIndex());
-        container.AppendChild(grandTotal);
-
-        SetAxisCount(container, uniqueCount + 1);
+        if (emitGrand)
+        {
+            // Grand total entry — omitted when the corresponding axis toggle is off.
+            var grandTotal = new RowItem { ItemType = ItemValues.Grand };
+            grandTotal.AppendChild(new MemberPropertyIndex());
+            container.AppendChild(grandTotal);
+            SetAxisCount(container, uniqueCount + 1);
+        }
+        else
+        {
+            SetAxisCount(container, uniqueCount);
+        }
         return container;
     }
 
@@ -4744,11 +4760,15 @@ internal static class PivotTableHelper
             }
         }
 
-        // Grand total row.
-        var grand = new RowItem { ItemType = ItemValues.Grand };
-        grand.AppendChild(new MemberPropertyIndex());
-        container.AppendChild(grand);
-        count++;
+        // CONSISTENCY(grand-totals): rowItems' grand entry = bottom grand total
+        // row, gated on _colGrandTotals. Omit entirely when the user opted out.
+        if (ActiveColGrandTotals)
+        {
+            var grand = new RowItem { ItemType = ItemValues.Grand };
+            grand.AppendChild(new MemberPropertyIndex());
+            container.AppendChild(grand);
+            count++;
+        }
 
         container.Count = (uint)count;
         return container;
@@ -4869,14 +4889,19 @@ internal static class PivotTableHelper
             }
         }
 
-        // Grand total columns: K entries with t="grand", x=0, i=d for d>0.
-        for (int d = 0; d < K; d++)
+        // CONSISTENCY(grand-totals): colItems' grand entries = right grand total
+        // column(s), gated on _rowGrandTotals. Omit entirely when the user opted out.
+        if (ActiveRowGrandTotals)
         {
-            var grand = new RowItem { ItemType = ItemValues.Grand };
-            if (d > 0) grand.Index = (uint)d;
-            grand.AppendChild(new MemberPropertyIndex());
-            container.AppendChild(grand);
-            count++;
+            // Grand total columns: K entries with t="grand", x=0, i=d for d>0.
+            for (int d = 0; d < K; d++)
+            {
+                var grand = new RowItem { ItemType = ItemValues.Grand };
+                if (d > 0) grand.Index = (uint)d;
+                grand.AppendChild(new MemberPropertyIndex());
+                container.AppendChild(grand);
+                count++;
+            }
         }
 
         container.Count = (uint)count;
@@ -4970,7 +4995,12 @@ internal static class PivotTableHelper
             }
         }
         Walk(tree);
-        entries.Add((Array.Empty<string>(), "grand"));
+        // CONSISTENCY(grand-totals): row-axis tree grand = bottom row (→ _colGrandTotals);
+        // col-axis tree grand = right column (→ _rowGrandTotals). Skip the grand
+        // sentinel entirely when the corresponding toggle is off.
+        bool emitGrand = isRow ? ActiveColGrandTotals : ActiveRowGrandTotals;
+        if (emitGrand)
+            entries.Add((Array.Empty<string>(), "grand"));
 
         // K>1 multiplies col-axis entries by K (one per data field). Row axis
         // stays 1 entry per logical row regardless of K.
