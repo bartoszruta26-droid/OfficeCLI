@@ -546,6 +546,10 @@ internal static partial class PivotTableHelper
                 sharedItems.AppendChild(new ErrorItem { Val = "#VALUE!" });
                 valueIndex[ErrorCellSentinel] = uniqueValues.Count + i;
             }
+            // OOXML requires longText="1" when any string exceeds 255 chars.
+            // Without it, Excel reports "problem with some content" and repairs.
+            if (uniqueValues.Any(v => v.Length > 255))
+                sharedItems.LongText = true;
         }
 
         field.AppendChild(sharedItems);

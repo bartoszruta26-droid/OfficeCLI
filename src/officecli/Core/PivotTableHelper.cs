@@ -189,7 +189,7 @@ internal static partial class PivotTableHelper
             "source", "src", "name", "position", "pos", "style",
             "rows", "cols", "filters", "values",
             "aggregate", "showdataas", "topn",
-            "sort",
+            "sort", "layout",
             "grandtotals", "rowgrandtotals", "colgrandtotals",
             "subtotals", "defaultsubtotal",
             // <pivotTableStyleInfo> bool toggles (see ApplyPivotStyleInfoProps).
@@ -510,6 +510,53 @@ internal static partial class PivotTableHelper
         public void Dispose() { _defaultSubtotal = _prev; }
     }
 
+    // ==================== Layout mode options ====================
+    //
+    // CONSISTENCY(thread-static-pivot-opts): same ThreadStatic precedent as
+    // sort + grand totals + subtotals. Layout mode (compact/outline/tabular)
+    // affects geometry (rowLabelCols), definition attributes, PivotField
+    // attributes, and renderer column placement. Threading a parameter
+    // through all 15+ call sites would be excessively invasive.
+    //
+    // Supported modes:
+    //   "compact"  — (DEFAULT) all row fields share one column with indentation
+    //   "outline"  — each row field gets its own column, labels on same row as data
+    //   "tabular"  — each row field gets its own column, labels on separate row from data
+    [ThreadStatic] private static string? _layoutMode;
+
+    private static string ActiveLayoutMode => _layoutMode ?? "compact";
+
+    /// <summary>
+    /// Parse layout property into the thread-static scope. Supports:
+    ///   layout=compact|outline|tabular
+    /// Returns a scope that restores the previous value on Dispose.
+    /// </summary>
+    private static readonly HashSet<string> _validLayoutModes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "compact", "outline", "tabular"
+    };
+
+    private static IDisposable PushLayoutMode(Dictionary<string, string> properties)
+    {
+        var prev = _layoutMode;
+        if (properties.TryGetValue("layout", out var mode) && !string.IsNullOrWhiteSpace(mode))
+        {
+            var normalized = mode.Trim().ToLowerInvariant();
+            if (!_validLayoutModes.Contains(normalized))
+                throw new ArgumentException(
+                    $"invalid layout: '{mode}'. Valid: compact, outline, tabular");
+            _layoutMode = normalized;
+        }
+        return new LayoutModeScope(prev);
+    }
+
+    private sealed class LayoutModeScope : IDisposable
+    {
+        private readonly string? _prev;
+        public LayoutModeScope(string? prev) { _prev = prev; }
+        public void Dispose() { _layoutMode = _prev; }
+    }
+
     /// <summary>
     /// Apply axis ordering (ascending/descending) to an OrderBy clause using
     /// the currently-active sort mode. All axis sort sites use this helper.
@@ -675,6 +722,8 @@ internal static partial class PivotTableHelper
         using var _gtScope = PushGrandTotalsOptions(properties);
         // CONSISTENCY(thread-static-pivot-opts): same pattern for subtotals.
         using var _subScope = PushSubtotalsOptions(properties);
+        // CONSISTENCY(thread-static-pivot-opts): same pattern for layout mode.
+        using var _layoutScope = PushLayoutMode(properties);
 
         // 1. Read source data to build cache
         var (headers, columnData, columnStyleIds) = ReadSourceData(sourceSheet, sourceRef);
@@ -848,7 +897,17 @@ internal static partial class PivotTableHelper
         if (pivotCaches == null)
         {
             pivotCaches = new PivotCaches();
-            workbook.AppendChild(pivotCaches);
+            // OOXML schema requires pivotCaches AFTER calcPr/oleSize/
+            // customWorkbookViews and BEFORE smartTagPr/fileRecoveryPr/extLst.
+            // AppendChild puts it after fileRecoveryPr, violating schema order
+            // and causing Excel to report "problem with some content".
+            var insertBefore = workbook.GetFirstChild<WebPublishing>()
+                ?? workbook.GetFirstChild<FileRecoveryProperties>()
+                ?? (OpenXmlElement?)workbook.GetFirstChild<WebPublishObjects>();
+            if (insertBefore != null)
+                workbook.InsertBefore(pivotCaches, insertBefore);
+            else
+                workbook.AppendChild(pivotCaches);
         }
         pivotCaches.AppendChild(new PivotCache { CacheId = cacheId, Id = cacheRelId });
         workbook.Save();
@@ -1179,7 +1238,10 @@ internal static partial class PivotTableHelper
         List<(int idx, string func, string showAs, string name)> valueFields)
     {
         int dataFieldCount = Math.Max(1, valueFields.Count);
-        int rowLabelCols = 1; // Compact mode
+        // Compact: all row fields share one column. Outline/Tabular: one column per row field.
+        int rowLabelCols = ActiveLayoutMode == "compact"
+            ? 1
+            : Math.Max(1, rowFieldIndices.Count);
 
         // CONSISTENCY(subtotals-opts): when subtotals=off, the per-group outer
         // subtotal row (2+ row fields) and outer subtotal column (2+ col fields)
@@ -1203,8 +1265,12 @@ internal static partial class PivotTableHelper
 
             // Display row count = subtotal positions + leaf positions
             // (the grand total row is added separately below). When subtotals
-            // are off, only leaf rows contribute.
-            int rowSubtotals = emitSubtotals ? CountSubtotalNodes(rowTree) : 0;
+            // are off, only leaf rows contribute — unless compact mode where
+            // parent group headers still appear as label-only rows.
+            bool compactLabelRows = !emitSubtotals && ActiveLayoutMode == "compact"
+                && rowFieldIndices.Count >= 2;
+            int rowSubtotals = (emitSubtotals || compactLabelRows)
+                ? CountSubtotalNodes(rowTree) : 0;
             int rowLeaves = CountLeafNodes(rowTree);
             dataRowCount = rowSubtotals + rowLeaves;
 
@@ -1545,5 +1611,138 @@ internal static partial class PivotTableHelper
             .OrderBy(r => r.RowIndex?.Value ?? 0)
             .ToList();
         foreach (var r in orderedRows) { r.Remove(); sheetData.AppendChild(r); }
+    }
+
+    /// <summary>
+    /// Re-materialize pivot table cells for all pivots in the given worksheet.
+    /// Called before HTML rendering so that existing Excel files whose sheetData
+    /// contains stale/minimal pivot cache get properly expanded with hierarchical
+    /// row labels and aggregated values.
+    /// </summary>
+    internal static void RefreshPivotCellsForView(WorksheetPart worksheetPart)
+    {
+        var pivotParts = worksheetPart.PivotTableParts.ToList();
+        Console.Error.WriteLine($"DEBUG RefreshPivotCellsForView: {pivotParts.Count} pivot(s)");
+        if (pivotParts.Count == 0) return;
+
+        foreach (var pivotPart in pivotParts)
+        {
+            var pivotDef = pivotPart.PivotTableDefinition;
+            if (pivotDef == null) continue;
+
+            var cachePart = pivotPart.GetPartsOfType<PivotTableCacheDefinitionPart>().FirstOrDefault();
+            if (cachePart?.PivotCacheDefinition == null) continue;
+
+            var cacheFields = cachePart.PivotCacheDefinition.GetFirstChild<CacheFields>();
+            if (cacheFields == null) continue;
+
+            // Read field assignments from the existing definition
+            var rowFieldIndices = ReadCurrentFieldIndices(
+                pivotDef.RowFields?.Elements<Field>(), f => f.Index?.Value ?? -1);
+            var colFieldIndices = ReadCurrentFieldIndices(
+                pivotDef.ColumnFields?.Elements<Field>(), f => f.Index?.Value ?? -1);
+            var filterFieldIndices = ReadCurrentFieldIndices(
+                pivotDef.PageFields?.Elements<PageField>(), f => f.Field?.Value ?? -1);
+            var valueFields = ReadCurrentDataFields(pivotDef.DataFields);
+
+            Console.Error.WriteLine($"DEBUG: rows={rowFieldIndices.Count} cols={colFieldIndices.Count} vals={valueFields.Count}");
+            if (valueFields.Count == 0) continue;
+
+            // Read cache data
+            var (cacheHeaders, cacheColumnData) = ReadColumnDataFromCache(
+                cachePart.PivotCacheDefinition,
+                cachePart.GetPartsOfType<PivotTableCacheRecordsPart>().FirstOrDefault()?.PivotCacheRecords);
+            if (cacheColumnData.Count == 0) continue;
+
+            // Detect layout mode from existing definition
+            string? layoutMode = null;
+            if (pivotDef.Compact?.Value == false)
+            {
+                var firstAxisField = pivotDef.PivotFields?.Elements<PivotField>()
+                    .FirstOrDefault(pf => pf.Axis != null);
+                if (firstAxisField?.Outline?.Value == false)
+                    layoutMode = "tabular";
+                else
+                    layoutMode = "outline";
+            }
+
+            // Detect grand totals from definition (OOXML mapping is swapped)
+            bool? rowGT = pivotDef.ColumnGrandTotals?.Value == false ? false : null;
+            bool? colGT = pivotDef.RowGrandTotals?.Value == false ? false : null;
+
+            // Detect subtotals
+            bool? defaultSubtotal = null;
+            if (pivotDef.PivotFields != null)
+            {
+                foreach (var pf in pivotDef.PivotFields.Elements<PivotField>())
+                {
+                    if (pf.DefaultSubtotal?.Value == false)
+                    {
+                        defaultSubtotal = false;
+                        break;
+                    }
+                }
+            }
+
+            // Push thread-static options for the render pass
+            var prevLayout = _layoutMode;
+            var prevRowGT = _rowGrandTotals;
+            var prevColGT = _colGrandTotals;
+            var prevSubtotal = _defaultSubtotal;
+            try
+            {
+                _layoutMode = layoutMode;
+                _rowGrandTotals = rowGT;
+                _colGrandTotals = colGT;
+                _defaultSubtotal = defaultSubtotal;
+
+                // Determine anchor position from the existing Location
+                var locationRef = pivotDef.Location?.Reference?.Value;
+                var anchorRef = locationRef?.Split(':')[0] ?? "A1";
+
+                // Clear old cells and re-render
+                var ws = worksheetPart.Worksheet;
+                var sheetData = ws?.GetFirstChild<SheetData>();
+                if (ws != null && sheetData != null && locationRef != null)
+                {
+                    ClearPivotRangeCells(sheetData, locationRef);
+
+                    // Try to get source column styles for number formatting
+                    uint?[]? sourceColumnStyleIds = null;
+                    try
+                    {
+                        var wbPart = worksheetPart.GetParentParts().OfType<WorkbookPart>().FirstOrDefault();
+                        var wsSource = cachePart.PivotCacheDefinition.CacheSource?.WorksheetSource;
+                        if (wbPart != null && wsSource?.Sheet?.Value is string srcSheetName
+                            && wsSource.Reference?.Value is string srcRef)
+                        {
+                            var sheetRef = wbPart.Workbook?.Sheets?.Elements<Sheet>()
+                                .FirstOrDefault(s => s.Name?.Value == srcSheetName);
+                            if (sheetRef?.Id?.Value is string relId
+                                && wbPart.GetPartById(relId) is WorksheetPart srcWsPart)
+                            {
+                                var (_, _, ids) = ReadSourceData(srcWsPart, srcRef);
+                                sourceColumnStyleIds = ids;
+                            }
+                        }
+                    }
+                    catch { /* best-effort */ }
+
+                    RenderPivotIntoSheet(
+                        worksheetPart, anchorRef, cacheHeaders, cacheColumnData,
+                        rowFieldIndices, colFieldIndices, valueFields, filterFieldIndices,
+                        sourceColumnStyleIds);
+
+                    DedupeSheetDataRows(sheetData);
+                }
+            }
+            finally
+            {
+                _layoutMode = prevLayout;
+                _rowGrandTotals = prevRowGT;
+                _colGrandTotals = prevColGT;
+                _defaultSubtotal = prevSubtotal;
+            }
+        }
     }
 }
