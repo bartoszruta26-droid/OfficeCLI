@@ -163,7 +163,7 @@ internal static partial class PivotTableHelper
             // when the corresponding caption attribute is empty/missing.
             RowHeaderCaption = rowFieldIndices.Count > 0 ? headers[rowFieldIndices[0]] : "Rows",
             ColumnHeaderCaption = colFieldIndices.Count > 0 ? headers[colFieldIndices[0]] : "Columns",
-            GrandTotalCaption = "总计"
+            GrandTotalCaption = "Grand Total"
         };
 
         // Layout-dependent attributes on PivotTableDefinition.
