@@ -1,9 +1,22 @@
 #!/usr/bin/env python3
 """
-Histogram Charts Showcase — every binning mode, every styling knob,
-and a visual gallery of the iconic distribution shapes.
+Histogram Charts — Grand Showcase
+==================================
 
-Generates: charts-histogram.xlsx (4 sheets, 16 histograms)
+The most thorough, most visually polished histogram demo officecli can
+produce. Every binning knob, every styling vocabulary, every canonical
+distribution shape, six design themes on one dataset, four font type
+specimens, and a cohesive production-grade ML dashboard — all driven by
+real copyable officecli CLI commands.
+
+Generates: charts-histogram.xlsx (6 sheets, 29 histograms)
+
+  0-Hero                 1 magazine-grade full-bleed hero poster chart
+  1-Binning Lab          6 charts — every binning knob, identical styling
+  2-Distribution Zoo     6 canonical real-world distribution shapes
+  3-Theme Gallery        6 design themes on the SAME dataset
+  4-Typography           4 font-family type specimens
+  5-ML Dashboard         6-chart "Production ML Model Report" dashboard
 
 Usage:
   python3 charts-histogram.py
@@ -13,8 +26,9 @@ import subprocess, os, atexit, random, math
 
 FILE = "charts-histogram.xlsx"
 
+
 def cli(cmd):
-    """Run: officecli <cmd>"""
+    """Run: officecli <cmd> — prints stdout/stderr in real time."""
     r = subprocess.run(f"officecli {cmd}", shell=True, capture_output=True, text=True)
     out = (r.stdout or "").strip()
     if out:
@@ -26,6 +40,11 @@ def cli(cmd):
         if err and "UNSUPPORTED" not in err and "process cannot access" not in err:
             print(f"  ERROR: {err}")
 
+
+# --------------------------------------------------------------------------
+# Scaffolding: create file, open it in resident mode (fast subsequent calls),
+# and register a graceful close() on exit.
+# --------------------------------------------------------------------------
 if os.path.exists(FILE):
     os.remove(FILE)
 
@@ -33,555 +52,643 @@ cli(f'create "{FILE}"')
 cli(f'open "{FILE}"')
 atexit.register(lambda: cli(f'close "{FILE}"'))
 
+
 # --------------------------------------------------------------------------
 # Deterministic sample generators — same seed, same file every regeneration.
+# All datasets are CSV-joined once here and reused across sheets.
 # --------------------------------------------------------------------------
-random.seed(42)
-BELL = sorted(round(random.gauss(75, 12), 1) for _ in range(120))
-BELL_CSV = ",".join(str(v) for v in BELL)
+def csv(values):
+    return ",".join(str(v) for v in values)
 
-# Bimodal: two cohorts (e.g. beginners ~55, experts ~88) glued together.
+# The "reference" bell curve — 200 samples around 75±12. Used by the hero,
+# the binning lab, the theme gallery, the typography specimens, and the zoo.
+random.seed(42)
+BELL_200 = sorted(round(random.gauss(75, 12), 1) for _ in range(200))
+BELL_CSV = csv(BELL_200)
+
+# Bimodal: two cohorts (beginners ~55, experts ~88) glued together.
 random.seed(7)
 BIMODAL = sorted(
-    [round(random.gauss(55, 6), 1) for _ in range(60)] +
-    [round(random.gauss(88, 5), 1) for _ in range(60)]
+    [round(random.gauss(55, 6), 1) for _ in range(80)]
+    + [round(random.gauss(88, 5), 1) for _ in range(80)]
 )
-BIMODAL_CSV = ",".join(str(v) for v in BIMODAL)
+BIMODAL_CSV = csv(BIMODAL)
 
-# Right-skewed / log-normal: classic income shape, long tail to the right.
+# Right-skewed / log-normal: classic income shape.
 random.seed(11)
-SKEWED_R = sorted(round(math.exp(random.gauss(3.2, 0.55)), 1) for _ in range(150))
-SKEWED_R_CSV = ",".join(str(v) for v in SKEWED_R)
+LOGNORM = sorted(round(math.exp(random.gauss(3.2, 0.55)), 1) for _ in range(180))
+LOGNORM_CSV = csv(LOGNORM)
 
-# Left-skewed: retirement ages — most cluster high, few retire early.
+# Left-skewed: retirement ages — most cluster high, a few retire early.
 random.seed(23)
-SKEWED_L = sorted(round(75 - math.exp(random.gauss(1.6, 0.6)), 1) for _ in range(120))
-SKEWED_L_CSV = ",".join(str(v) for v in SKEWED_L)
+LEFT_SKEW = sorted(round(75 - math.exp(random.gauss(1.6, 0.6)), 1) for _ in range(140))
+LEFT_CSV = csv(LEFT_SKEW)
 
-# Uniform: sample IDs drawn evenly across a range.
+# Uniform: random draws evenly distributed across a range.
 random.seed(31)
-UNIFORM = sorted(round(random.uniform(0, 100), 1) for _ in range(140))
-UNIFORM_CSV = ",".join(str(v) for v in UNIFORM)
+UNIFORM = sorted(round(random.uniform(0, 100), 1) for _ in range(160))
+UNIFORM_CSV = csv(UNIFORM)
 
-# Heavy-tailed (Pareto / power-law): API latencies — most are fast, tiny
-# fraction are catastrophic. Perfect target for underflow/overflow fencing.
+# Heavy-tailed (Pareto): most small, tiny fraction catastrophic.
 random.seed(47)
-HEAVY = sorted(round(random.paretovariate(1.6) * 20, 1) for _ in range(160))
-HEAVY_CSV = ",".join(str(v) for v in HEAVY)
+PARETO = sorted(round(random.paretovariate(1.6) * 20, 1) for _ in range(200))
+PARETO_CSV = csv(PARETO)
+
+# --- ML Dashboard datasets (sheet 5) ---
+random.seed(101)
+LATENCY_MS = sorted(round(random.paretovariate(1.8) * 15 + 10, 1) for _ in range(250))
+LATENCY_CSV = csv(LATENCY_MS)
+
+random.seed(102)
+CONFIDENCE = sorted(round(random.betavariate(6, 2) * 100, 2) for _ in range(240))
+CONFIDENCE_CSV = csv(CONFIDENCE)
+
+random.seed(103)
+ERROR_MAG = sorted(round(abs(random.gauss(0, 1.5)), 3) for _ in range(180))
+ERROR_MAG_CSV = csv(ERROR_MAG)
+
+random.seed(104)
+TOKEN_LEN = sorted(
+    [max(1, round(random.gauss(180, 40))) for _ in range(100)]
+    + [max(1, round(random.gauss(520, 90))) for _ in range(80)]
+)
+TOKEN_CSV = csv(TOKEN_LEN)
+
+random.seed(105)
+GPU_UTIL = sorted(round(min(99.0, max(30.0, random.gauss(82, 8))), 1) for _ in range(200))
+GPU_CSV = csv(GPU_UTIL)
+
+random.seed(106)
+COST_REQ = sorted(round(math.exp(random.gauss(-3.2, 0.9)) * 1000, 3) for _ in range(220))
+COST_CSV = csv(COST_REQ)
 
 
 # ==========================================================================
-# Sheet: 1-Binning Modes
+# Sheet 0: "0-Hero" — the full-bleed magazine hero poster
 #
-# Four histograms showing the raw binning vocabulary with no styling:
-# auto / binCount / binSize / underflow+overflow. This sheet is the
-# "Rosetta stone" — once these four work for you, all of Excel's
-# histogram binning is accessible.
+# A single giant chart using EVERY histogram knob at once:
+#   - Dark "Midnight Academia" palette: navy plot area, gold bars, cream text
+#   - title.*  (color/size/bold/font/shadow)
+#   - series.shadow + fill
+#   - axisline + axisfont + axisTitle.*
+#   - plotareafill / plotarea.border / chartareafill / chartarea.border
+#   - axismin / axismax / majorunit (locked Y scale)
+#   - gridlineColor
+#   - dataLabels + datalabels.numfmt
+#   - legend=top + legend.overlay + legendfont
+#   - intervalClosed=l + explicit binCount
+#
+# This chart is the "representative sample" — if it renders correctly, the
+# entire histogram pipeline is healthy.
 # ==========================================================================
-print("\n--- 1-Binning Modes ---")
-cli(f'set "{FILE}" /Sheet1 --prop name="1-Binning Modes"')
+print("\n--- 0-Hero ---")
+cli(f'set "{FILE}" /Sheet1 --prop name="0-Hero"')
 
-# --------------------------------------------------------------------------
-# Chart 1: Auto-binning (Excel's default — no binCount, no binSize)
-#
-# officecli add charts-histogram.xlsx "/1-Binning Modes" --type chart \
+# officecli add charts-histogram.xlsx "/0-Hero" --type chart \
 #   --prop chartType=histogram \
-#   --prop title="Test Scores (auto bins)" \
-#   --prop series1="Scores:45,52,58,..." \
-#   --prop x=0 --prop y=0 --prop width=13 --prop height=18
-#
-# Features: chartType=histogram, auto-binning (Excel picks bin count)
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/1-Binning Modes" --type chart'
+#   --prop title="The Shape of Data · 200-sample bell curve" \
+#   --prop title.color=F5F1E0 --prop title.size=22 --prop title.bold=true \
+#   --prop title.font="Helvetica Neue" \
+#   --prop "title.shadow=000000-8-45-4-70" \
+#   --prop series1="Samples:<200 bell values>" \
+#   --prop binCount=24 --prop intervalClosed=l \
+#   --prop fill=F0C96A --prop "series.shadow=000000-8-45-4-60" \
+#   --prop axismin=0 --prop axismax=28 --prop majorunit=4 \
+#   --prop xAxisTitle="Score" --prop yAxisTitle="Frequency" \
+#   --prop axisTitle.color=C9B87A --prop axisTitle.size=13 \
+#   --prop axisTitle.bold=true --prop axisTitle.font="Helvetica Neue" \
+#   --prop "axisfont=10:B8B090:Helvetica Neue" \
+#   --prop "axisline=6A6448:1.5" \
+#   --prop gridlineColor=2F3544 \
+#   --prop plotareafill=1A1F2C --prop "plotarea.border=3A3E4E:1.25" \
+#   --prop chartareafill=0B0F18 --prop "chartarea.border=2A2E3E:1" \
+#   --prop dataLabels=true --prop "datalabels.numfmt=0" \
+#   --prop legend=top --prop legend.overlay=false \
+#   --prop "legendfont=11:D4C994:Helvetica Neue" \
+#   --prop x=0 --prop y=0 --prop width=27 --prop height=38
+# Features: EVERY knob — title/series/axis/plotarea/chartarea/shadow/scaling/legend/datalabel
+cli(f'add "{FILE}" "/0-Hero" --type chart'
     f' --prop chartType=histogram'
-    f' --prop title="Test Scores (auto bins)"'
-    f' --prop series1=Scores:45,52,58,61,63,65,67,68,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,97,99'
-    f' --prop x=0 --prop y=0 --prop width=13 --prop height=18')
-
-# --------------------------------------------------------------------------
-# Chart 2: Explicit bin count (binCount=10)
-#
-# Features: binCount=N forces exactly N bins regardless of range.
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/1-Binning Modes" --type chart'
-    f' --prop chartType=histogram'
-    f' --prop title="Bell Curve (binCount=10)"'
-    f' --prop series1=Samples:{BELL_CSV}'
-    f' --prop binCount=10'
-    f' --prop x=14 --prop y=0 --prop width=13 --prop height=18')
-
-# --------------------------------------------------------------------------
-# Chart 3: Explicit bin width (binSize=50)
-#
-# Features: binSize=W forces bins of fixed width W.
-#   binCount wins if both are given.
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/1-Binning Modes" --type chart'
-    f' --prop chartType=histogram'
-    f' --prop title="Sales ($, binSize=50)"'
-    f' --prop series1=Sales:120,135,148,155,162,170,175,183,191,200,210,220,235,250,265,280,295,310,340,380,420,480,550,620,700'
-    f' --prop binSize=50'
-    f' --prop x=0 --prop y=19 --prop width=13 --prop height=18')
-
-# --------------------------------------------------------------------------
-# Chart 4: Underflow / overflow bins (outlier cut-offs)
-#
-# Features: underflowBin=N / overflowBin=M group values <N / >M into a
-#   single "<N" or ">M" bar — classic outlier fencing.
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/1-Binning Modes" --type chart'
-    f' --prop chartType=histogram'
-    f' --prop title="Latency (ms) with <50 and >500 cut-offs"'
-    f' --prop series1=Latency:12,28,40,60,75,82,95,110,125,140,155,170,185,200,220,240,260,285,310,340,380,420,460,510,620,750,900,1200'
-    f' --prop underflowBin=50'
-    f' --prop overflowBin=500'
-    f' --prop x=14 --prop y=19 --prop width=13 --prop height=18')
-
-# ==========================================================================
-# Sheet: 2-Styled Histograms
-#
-# Four histograms covering every styling knob: fill, axis titles, data
-# labels, interval-closed side, gridlines (both axes + colors), tick-label
-# hiding, gap width, legend, and bold axis titles.
-# ==========================================================================
-print("\n--- 2-Styled Histograms ---")
-cli(f'add "{FILE}" / --type sheet --prop name="2-Styled Histograms"')
-
-# --------------------------------------------------------------------------
-# Chart 1: Custom fill + axis titles + value labels + legend=top
-#
-# Features: fill=HEX, xAxisTitle, yAxisTitle, dataLabels, legend=top.
-#   The series name ("Age") is picked up by the top legend.
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/2-Styled Histograms" --type chart'
-    f' --prop chartType=histogram'
-    f' --prop title="Age Distribution"'
-    f' --prop series1=Age:18,19,20,21,21,22,22,23,23,24,24,25,25,26,27,28,29,30,31,33,35,38,42,45,50,55,62'
-    f' --prop binCount=8'
-    f' --prop fill=4472C4'
-    f' --prop xAxisTitle="Age (years)"'
-    f' --prop yAxisTitle="Count"'
-    f' --prop dataLabels=true'
-    f' --prop legend=top'
-    f' --prop x=0 --prop y=0 --prop width=13 --prop height=18')
-
-# --------------------------------------------------------------------------
-# Chart 2: Left-closed intervals + xGridlines + xGridlineColor
-#
-# Features: intervalClosed=l ([a,b) half-open) + xGridlines=true +
-#   xGridlineColor=hex to color the category-axis gridlines.
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/2-Styled Histograms" --type chart'
-    f' --prop chartType=histogram'
-    f' --prop title="Response Times [a,b) - left-closed"'
-    f' --prop series1=RT:10,12,15,18,20,22,25,28,30,33,35,38,40,42,45,48,50,55,60,65,70,75,80,90,100'
-    f' --prop binSize=10'
-    f' --prop intervalClosed=l'
-    f' --prop fill=70AD47'
-    f' --prop xGridlines=true'
-    f' --prop xGridlineColor=B4E0A0'
-    f' --prop x=14 --prop y=0 --prop width=13 --prop height=18')
-
-# --------------------------------------------------------------------------
-# Chart 3: Dense bell curve with gapWidth + bold axis titles
-#
-# Features: gapWidth=20 (bars no longer touch — useful when you want
-#   histogram bars to look column-chart-ish), axisTitle.bold=true.
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/2-Styled Histograms" --type chart'
-    f' --prop chartType=histogram'
-    f' --prop title="Bell Curve (120 samples, gapWidth=20)"'
-    f' --prop series1=Samples:{BELL_CSV}'
-    f' --prop binCount=20'
-    f' --prop fill=ED7D31'
-    f' --prop gapWidth=20'
-    f' --prop xAxisTitle="Value"'
-    f' --prop yAxisTitle="Frequency"'
-    f' --prop axisTitle.bold=true'
-    f' --prop x=0 --prop y=19 --prop width=13 --prop height=18')
-
-# --------------------------------------------------------------------------
-# Chart 4: Minimal — tickLabels + gridlines off (sparkline feel)
-#
-# Features: tickLabels=false hides bin range labels on X,
-#   gridlines=false hides the value-axis gridlines.
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/2-Styled Histograms" --type chart'
-    f' --prop chartType=histogram'
-    f' --prop title="Order Value (minimal)"'
-    f' --prop series1=Orders:5,8,12,15,18,22,25,28,32,35,40,45,50,58,65,75,88,105,130,180'
-    f' --prop binCount=6'
-    f' --prop fill=7030A0'
-    f' --prop tickLabels=false'
-    f' --prop gridlines=false'
-    f' --prop x=14 --prop y=19 --prop width=13 --prop height=18')
-
-# ==========================================================================
-# Sheet: 3-Typography & Colors
-#
-# Per-run text styling and axis/gridline colors. Same vocabulary as regular
-# cChart (ChartHelper.Builder.ApplyRunStyleProperties), so everything you
-# learn here transfers to column/bar/line/etc.
-# ==========================================================================
-print("\n--- 3-Typography & Colors ---")
-cli(f'add "{FILE}" / --type sheet --prop name="3-Typography & Colors"')
-
-# --------------------------------------------------------------------------
-# Chart 1: Title styling alone — color/size/bold/font
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/3-Typography & Colors" --type chart'
-    f' --prop chartType=histogram'
-    f' --prop title="Revenue Distribution"'
-    f' --prop title.color=C00000'
-    f' --prop title.size=18'
-    f' --prop title.bold=true'
+    f' --prop title="The Shape of Data · 200-sample bell curve"'
+    f' --prop title.color=F5F1E0 --prop title.size=22 --prop title.bold=true'
     f' --prop title.font="Helvetica Neue"'
-    f' --prop series1=Revenue:{BELL_CSV}'
-    f' --prop binCount=10'
-    f' --prop fill=C00000'
-    f' --prop x=0 --prop y=0 --prop width=13 --prop height=18')
-
-# --------------------------------------------------------------------------
-# Chart 2: Axis title styling — color/size/font
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/3-Typography & Colors" --type chart'
-    f' --prop chartType=histogram'
-    f' --prop title="Session Duration"'
-    f' --prop series1=Minutes:2,3,4,5,5,6,6,7,7,8,9,10,11,12,14,16,18,20,22,25,28,32,36,42,50,58,65,72,85,100'
-    f' --prop binCount=8'
-    f' --prop fill=4472C4'
-    f' --prop xAxisTitle="Minutes"'
-    f' --prop yAxisTitle="Users"'
-    f' --prop axisTitle.color=4472C4'
-    f' --prop axisTitle.size=12'
-    f' --prop axisTitle.font="Helvetica Neue"'
-    f' --prop x=14 --prop y=0 --prop width=13 --prop height=18')
-
-# --------------------------------------------------------------------------
-# Chart 3: axisfont compound form + value-axis gridline color
-#
-# `axisfont="size:color:fontname"` is the same compound form regular cChart
-# uses (ChartHelper.Builder.ApplyAxisTextProperties). Styles BOTH axes' tick
-# labels in one go.
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/3-Typography & Colors" --type chart'
-    f' --prop chartType=histogram'
-    f' --prop title="Latency Histogram"'
-    f' --prop series1=Latency:12,28,40,60,75,82,95,110,125,140,155,170,185,200,220,240,260,285,310,340,380,420,460,510,620,750,900,1200'
-    f' --prop binCount=12'
-    f' --prop fill=70AD47'
-    f' --prop xAxisTitle="ms"'
-    f' --prop yAxisTitle="Requests"'
-    f' --prop axisfont="10:555555:Helvetica Neue"'
-    f' --prop gridlineColor=E0E0E0'
-    f' --prop x=0 --prop y=19 --prop width=13 --prop height=18')
-
-# --------------------------------------------------------------------------
-# Chart 4: All typography knobs together — "magazine look"
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/3-Typography & Colors" --type chart'
-    f' --prop chartType=histogram'
-    f' --prop title="Bell Curve (magazine look)"'
-    f' --prop title.color=2F5597'
-    f' --prop title.size=16'
-    f' --prop title.bold=true'
-    f' --prop title.font="Helvetica Neue"'
+    f' --prop "title.shadow=000000-8-45-4-70"'
     f' --prop series1=Samples:{BELL_CSV}'
-    f' --prop binCount=15'
-    f' --prop fill=4472C4'
-    f' --prop xAxisTitle="Score"'
-    f' --prop yAxisTitle="Count"'
-    f' --prop axisTitle.color=666666'
-    f' --prop axisTitle.size=11'
-    f' --prop axisTitle.font="Helvetica Neue"'
-    f' --prop axisfont="9:888888:Helvetica Neue"'
-    f' --prop gridlineColor=EEEEEE'
-    f' --prop x=14 --prop y=19 --prop width=13 --prop height=18')
+    f' --prop binCount=24 --prop intervalClosed=l'
+    f' --prop fill=F0C96A --prop "series.shadow=000000-8-45-4-60"'
+    f' --prop axismin=0 --prop axismax=28 --prop majorunit=4'
+    f' --prop xAxisTitle="Score" --prop yAxisTitle="Frequency"'
+    f' --prop axisTitle.color=C9B87A --prop axisTitle.size=13'
+    f' --prop axisTitle.bold=true --prop axisTitle.font="Helvetica Neue"'
+    f' --prop "axisfont=10:B8B090:Helvetica Neue"'
+    f' --prop "axisline=6A6448:1.5"'
+    f' --prop gridlineColor=2F3544'
+    f' --prop plotareafill=1A1F2C --prop "plotarea.border=3A3E4E:1.25"'
+    f' --prop chartareafill=0B0F18 --prop "chartarea.border=2A2E3E:1"'
+    f' --prop dataLabels=true --prop "datalabels.numfmt=0"'
+    f' --prop legend=top --prop legend.overlay=false'
+    f' --prop "legendfont=11:D4C994:Helvetica Neue"'
+    f' --prop x=0 --prop y=0 --prop width=27 --prop height=38')
+
 
 # ==========================================================================
-# Sheet: 4-Distribution Gallery
+# Sheet 1: "1-Binning Lab"
 #
-# A 2x3 visual gallery of the *canonical* distribution shapes you'll see
-# in real-world data. Same styling vocabulary as Sheet 3, different data.
-# The goal: pattern-recognition. If you ever see one of these shapes in
-# production telemetry, you know what you're looking at.
+# Six histograms, SAME dataset (BELL_200), IDENTICAL typography / colors /
+# frames — the ONLY thing that varies is the binning strategy. Put side by
+# side, this sheet is the "Rosetta stone": once you see how each binning
+# knob reshapes the bars, you'll never be confused about which to use.
 #
-#   ┌────────────┬────────────┐
-#   │  Bimodal   │ Right-skew │
-#   ├────────────┼────────────┤
-#   │   Uniform  │ Left-skew  │
-#   ├────────────┼────────────┤
-#   │ Heavy-tail │   Normal   │
-#   └────────────┴────────────┘
-#
-# Each chart uses a distinct color from the default Excel palette to keep
-# the gallery scan-friendly. All four chart areas use the same magazine-
-# grade axisfont + gridlineColor so the gallery reads as a cohesive set.
+#   ┌──────────┬──────────┐
+#   │ 1. auto  │ 2. count │
+#   ├──────────┼──────────┤
+#   │ 3. fine  │ 4. width │
+#   ├──────────┼──────────┤
+#   │ 5. fence │ 6. lclos │
+#   └──────────┴──────────┘
 # ==========================================================================
-print("\n--- 4-Distribution Gallery ---")
-cli(f'add "{FILE}" / --type sheet --prop name="4-Distribution Gallery"')
+print("\n--- 1-Binning Lab ---")
+cli(f'add "{FILE}" / --type sheet --prop name="1-Binning Lab"')
 
-# Shared typography "house style" — applied to every chart in the gallery
-# so the page reads as a consistent dashboard rather than a grab-bag.
-STYLE = (
-    ' --prop title.color=1F2937'
-    ' --prop title.size=14'
-    ' --prop title.bold=true'
+# Shared "clean lab" style — every chart on this sheet wears the exact same
+# outfit so the bin-shape difference is the only visible variable.
+LAB = (
+    ' --prop fill=4472C4'
+    ' --prop title.color=1F2937 --prop title.size=13 --prop title.bold=true'
     ' --prop title.font="Helvetica Neue"'
-    ' --prop axisTitle.color=6B7280'
-    ' --prop axisTitle.size=10'
+    ' --prop xAxisTitle="Score" --prop yAxisTitle="Count"'
+    ' --prop axisTitle.color=6B7280 --prop axisTitle.size=10'
     ' --prop axisTitle.font="Helvetica Neue"'
-    ' --prop axisfont="9:6B7280:Helvetica Neue"'
-    ' --prop gridlineColor=EEEEEE'
+    ' --prop "axisfont=9:6B7280:Helvetica Neue"'
+    ' --prop gridlineColor=F0F0F0'
+    ' --prop plotareafill=FFFFFF --prop "plotarea.border=E5E7EB:0.75"'
+    ' --prop chartareafill=F9FAFB --prop "chartarea.border=E5E7EB:0.75"'
+    ' --prop "axisline=9CA3AF:0.75"'
 )
 
-# --------------------------------------------------------------------------
-# Chart 1: Bimodal — two cohorts (beginners + experts) fused together.
-#   Classic sign that your data has two populations you should split.
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/4-Distribution Gallery" --type chart'
+# officecli add charts-histogram.xlsx "/1-Binning Lab" --type chart \
+#   --prop chartType=histogram --prop title="1 · Auto-binning (Excel default)" \
+#   --prop series1="Samples:<bell>" ... <LAB styling>
+# Features: no binCount, no binSize — Excel picks the bin count automatically.
+cli(f'add "{FILE}" "/1-Binning Lab" --type chart'
     f' --prop chartType=histogram'
-    f' --prop title="Bimodal — two hidden populations"'
-    f' --prop series1=Score:{BIMODAL_CSV}'
-    f' --prop binCount=20'
-    f' --prop fill=4472C4'
-    f' --prop xAxisTitle="Test score"'
-    f' --prop yAxisTitle="Count"'
-    f'{STYLE}'
+    f' --prop title="1 · Auto-binning (Excel default)"'
+    f' --prop series1=Samples:{BELL_CSV}'
+    f'{LAB}'
     f' --prop x=0 --prop y=0 --prop width=13 --prop height=18')
 
-# --------------------------------------------------------------------------
-# Chart 2: Right-skewed (log-normal) — classic income/file-size/wait-time
-#   shape. Mean >> median; long tail pulls right.
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/4-Distribution Gallery" --type chart'
+# Features: binCount=8 — coarse. Fewer, wider bars. Good for "what's the mode?"
+cli(f'add "{FILE}" "/1-Binning Lab" --type chart'
     f' --prop chartType=histogram'
-    f' --prop title="Right-skewed — log-normal (income)"'
-    f' --prop series1=Income:{SKEWED_R_CSV}'
-    f' --prop binCount=18'
-    f' --prop fill=ED7D31'
-    f' --prop xAxisTitle="Monthly income ($k)"'
-    f' --prop yAxisTitle="People"'
-    f'{STYLE}'
+    f' --prop title="2 · binCount=8 (coarse)"'
+    f' --prop series1=Samples:{BELL_CSV}'
+    f' --prop binCount=8'
+    f'{LAB}'
     f' --prop x=14 --prop y=0 --prop width=13 --prop height=18')
 
-# --------------------------------------------------------------------------
-# Chart 3: Uniform — every value equally likely. Flat top is the tell.
-#   binSize rather than binCount to emphasize the "flat floor".
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/4-Distribution Gallery" --type chart'
+# Features: binCount=32 — fine. Many narrow bars. Good for "is it really Gaussian?"
+cli(f'add "{FILE}" "/1-Binning Lab" --type chart'
     f' --prop chartType=histogram'
-    f' --prop title="Uniform — flat floor"'
-    f' --prop series1=Draws:{UNIFORM_CSV}'
-    f' --prop binSize=10'
-    f' --prop fill=70AD47'
-    f' --prop xAxisTitle="Random draw (0-100)"'
-    f' --prop yAxisTitle="Count"'
-    f'{STYLE}'
+    f' --prop title="3 · binCount=32 (fine)"'
+    f' --prop series1=Samples:{BELL_CSV}'
+    f' --prop binCount=32'
+    f'{LAB}'
     f' --prop x=0 --prop y=19 --prop width=13 --prop height=18')
 
-# --------------------------------------------------------------------------
-# Chart 4: Left-skewed — retirement ages. Most cluster near the cap,
-#   tail stretches toward earlier ages.
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/4-Distribution Gallery" --type chart'
+# Features: binSize=5 — fixed bin width. Use when you want human-friendly
+# bin boundaries (multiples of 5, 10, etc) regardless of data range.
+cli(f'add "{FILE}" "/1-Binning Lab" --type chart'
     f' --prop chartType=histogram'
-    f' --prop title="Left-skewed — retirement ages"'
-    f' --prop series1=Age:{SKEWED_L_CSV}'
-    f' --prop binCount=16'
-    f' --prop fill=7030A0'
-    f' --prop xAxisTitle="Age at retirement"'
-    f' --prop yAxisTitle="Count"'
-    f'{STYLE}'
+    f' --prop title="4 · binSize=5 (fixed-width bins)"'
+    f' --prop series1=Samples:{BELL_CSV}'
+    f' --prop binSize=5'
+    f'{LAB}'
     f' --prop x=14 --prop y=19 --prop width=13 --prop height=18')
 
-# --------------------------------------------------------------------------
-# Chart 5: Heavy-tailed (Pareto / power-law) — API latencies. Most fast,
-#   tiny fraction catastrophic. Uses overflowBin to fence the long tail
-#   so the interesting bulk stays readable.
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/4-Distribution Gallery" --type chart'
+# Features: underflowBin=55 + overflowBin=95 — outlier fencing. Everything
+# below 55 or above 95 collapses into a single <55 / >95 bar.
+cli(f'add "{FILE}" "/1-Binning Lab" --type chart'
     f' --prop chartType=histogram'
-    f' --prop title="Heavy-tailed — API latency (overflow=500)"'
-    f' --prop series1=Latency:{HEAVY_CSV}'
-    f' --prop binSize=25'
-    f' --prop overflowBin=500'
-    f' --prop fill=C00000'
-    f' --prop xAxisTitle="Latency (ms)"'
-    f' --prop yAxisTitle="Requests"'
-    f'{STYLE}'
+    f' --prop title="5 · underflow=55 · overflow=95 (fencing)"'
+    f' --prop series1=Samples:{BELL_CSV}'
+    f' --prop binSize=5 --prop underflowBin=55 --prop overflowBin=95'
+    f'{LAB}'
     f' --prop x=0 --prop y=38 --prop width=13 --prop height=18')
 
-# --------------------------------------------------------------------------
-# Chart 6: Normal (bell curve) — the reference shape. Same BELL series
-#   used throughout this file so you can compare the same data with
-#   different bin strategies across sheets.
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/4-Distribution Gallery" --type chart'
+# Features: intervalClosed=l (half-open [a,b)) + gapWidth=30 — shows the
+# "left-closed" variant AND pushes bars apart so you can see each one.
+# Useful when the dataset has values lying exactly on a bin boundary.
+cli(f'add "{FILE}" "/1-Binning Lab" --type chart'
     f' --prop chartType=histogram'
-    f' --prop title="Normal — bell curve (reference)"'
+    f' --prop title="6 · [a,b) intervals + gapWidth=30"'
     f' --prop series1=Samples:{BELL_CSV}'
-    f' --prop binCount=18'
-    f' --prop fill=2F5597'
-    f' --prop xAxisTitle="Value"'
-    f' --prop yAxisTitle="Count"'
-    f'{STYLE}'
+    f' --prop binCount=16 --prop intervalClosed=l --prop gapWidth=30'
+    f'{LAB}'
     f' --prop x=14 --prop y=38 --prop width=13 --prop height=18')
 
+
 # ==========================================================================
-# Sheet: 5-Parity Knobs
+# Sheet 2: "2-Distribution Zoo"
 #
-# These charts demo the cx-extended-chart knobs that used to exist only in
-# regular cChart and are now available on cx histograms (axis scaling,
-# axis visibility/line, plot & chart area fill/border, series & title
-# shadows, legend overlay & font, data-label number format). Each chart
-# highlights ONE new knob combo so you can diff against a plain histogram
-# to see exactly what each knob emits.
+# A cohesive 2x3 gallery of the canonical distribution shapes you'll see
+# in production data. Pattern recognition: if you ever see one of these
+# shapes in a telemetry chart, you know immediately what's going on.
+#
+# Every chart shares the same typography + plot/chart area frames; only
+# the fill color and data change. Uses different binning strategies
+# appropriate to each distribution.
 # ==========================================================================
-print("\n--- 5-Parity Knobs ---")
-cli(f'add "{FILE}" / --type sheet --prop name="5-Parity Knobs"')
+print("\n--- 2-Distribution Zoo ---")
+cli(f'add "{FILE}" / --type sheet --prop name="2-Distribution Zoo"')
 
-# --------------------------------------------------------------------------
-# Chart 1: axismin / axismax / majorunit — lock the value-axis range.
-#
-# Useful when you want two histograms in a dashboard to share a Y scale,
-# or when the auto-scaled axis makes outliers unreadable. Mirrors regular
-# cChart's `axismin` / `axismax` / `majorunit` vocabulary exactly.
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/5-Parity Knobs" --type chart'
-    f' --prop chartType=histogram'
-    f' --prop title="Locked Y Scale (axismin/max/majorunit)"'
-    f' --prop series1=Scores:{BELL_CSV}'
-    f' --prop binCount=15'
-    f' --prop fill=4472C4'
-    f' --prop axismin=0'
-    f' --prop axismax=25'
-    f' --prop majorunit=5'
-    f' --prop x=0 --prop y=0 --prop width=13 --prop height=18')
+ZOO = (
+    ' --prop title.color=1F2937 --prop title.size=13 --prop title.bold=true'
+    ' --prop title.font="Helvetica Neue"'
+    ' --prop axisTitle.color=6B7280 --prop axisTitle.size=10'
+    ' --prop axisTitle.font="Helvetica Neue"'
+    ' --prop "axisfont=9:6B7280:Helvetica Neue"'
+    ' --prop gridlineColor=EFEFEF'
+    ' --prop plotareafill=FFFFFF --prop "plotarea.border=E5E7EB:0.75"'
+    ' --prop chartareafill=F9FAFB --prop "chartarea.border=E5E7EB:0.75"'
+    ' --prop "axisline=9CA3AF:0.75"'
+)
 
-# --------------------------------------------------------------------------
-# Chart 2: Series & title drop shadows (series.shadow / title.shadow).
-#
-# Format: "COLOR-BLUR-ANGLE-DIST-OPACITY". Same vocabulary as regular
-# cChart — under the hood both paths call DrawingEffectsHelper.BuildOuterShadow.
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/5-Parity Knobs" --type chart'
+# Features: classic bell curve reference, binCount=18, midnight blue fill.
+cli(f'add "{FILE}" "/2-Distribution Zoo" --type chart'
     f' --prop chartType=histogram'
-    f' --prop title="Drop Shadows (series.shadow + title.shadow)"'
-    f' --prop title.color=2F5597'
-    f' --prop title.size=14'
-    f' --prop title.bold=true'
-    f' --prop "title.shadow=808080-4-45-3-50"'
-    f' --prop series1=Sales:{BELL_CSV}'
-    f' --prop binCount=15'
-    f' --prop fill=ED7D31'
-    f' --prop "series.shadow=000000-6-45-3-35"'
-    f' --prop x=14 --prop y=0 --prop width=13 --prop height=18')
-
-# --------------------------------------------------------------------------
-# Chart 3: plot area + chart area fill & border (plotareafill / chartareafill
-# / plotarea.border / chartarea.border). Polished "card" look useful for
-# embedding charts into reports.
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/5-Parity Knobs" --type chart'
-    f' --prop chartType=histogram'
-    f' --prop title="Card Look (plotarea + chartarea fill/border)"'
-    f' --prop title.color=333333'
-    f' --prop title.size=13'
-    f' --prop series1=Latency:{HEAVY_CSV}'
-    f' --prop binCount=18'
-    f' --prop fill=4472C4'
-    f' --prop plotareafill=FAFBFC'
-    f' --prop "plotarea.border=D0D7DE:1"'
-    f' --prop chartareafill=FFFFFF'
-    f' --prop "chartarea.border=E5E5E5:0.75"'
-    f' --prop overflowBin=500'
-    f' --prop x=0 --prop y=19 --prop width=13 --prop height=18')
-
-# --------------------------------------------------------------------------
-# Chart 4: Axis line styling + visibility (axisline / valaxis.visible).
-#
-# axisline accepts "color" / "color:width" / "color:width:dash" / "none".
-# valaxis.visible=false hides ONLY the value axis (cataxis.visible hides
-# only the category axis; axis.visible hides both).
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/5-Parity Knobs" --type chart'
-    f' --prop chartType=histogram'
-    f' --prop title="Minimal Axes (axisline + valaxis.visible=false)"'
-    f' --prop series1=Events:{UNIFORM_CSV}'
-    f' --prop binSize=10'
-    f' --prop fill=70AD47'
-    f' --prop "axisline=888888:1.25"'
-    f' --prop valaxis.visible=false'
-    f' --prop gridlines=false'
-    f' --prop x=14 --prop y=19 --prop width=13 --prop height=18')
-
-# --------------------------------------------------------------------------
-# Chart 5: Data-label number format + overlaid legend with styled font
-# (datalabels.numfmt / legend.overlay / legendfont).
-#
-# datalabels.numfmt uses Excel's standard format codes ("0", "0.0",
-# "0.00%", "#,##0"). legendfont uses the compound "size:color:fontname"
-# form shared with axisfont. legend.overlay=true lets the legend float
-# on top of the plot area (useful when chart space is tight).
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/5-Parity Knobs" --type chart'
-    f' --prop chartType=histogram'
-    f' --prop title="Label Format + Overlaid Legend"'
-    f' --prop title.color=C00000'
-    f' --prop title.size=13'
-    f' --prop title.bold=true'
-    f' --prop series1=Revenue:{BELL_CSV}'
-    f' --prop binCount=10'
-    f' --prop fill=C00000'
-    f' --prop dataLabels=true'
-    f' --prop "datalabels.numfmt=0"'
-    f' --prop legend=top'
-    f' --prop legend.overlay=true'
-    f' --prop "legendfont=10:555555:Helvetica Neue"'
-    f' --prop x=0 --prop y=38 --prop width=13 --prop height=18')
-
-# --------------------------------------------------------------------------
-# Chart 6: Everything — all new knobs stacked onto one presentation-grade
-# "magazine hero" chart. This is what the cx-histogram pipeline can do
-# end-to-end after the parity port.
-# --------------------------------------------------------------------------
-cli(f'add "{FILE}" "/5-Parity Knobs" --type chart'
-    f' --prop chartType=histogram'
-    f' --prop title="Everything Combined"'
-    f' --prop title.color=1F2937'
-    f' --prop title.size=16'
-    f' --prop title.bold=true'
-    f' --prop "title.font=Helvetica Neue"'
-    f' --prop "title.shadow=808080-4-45-3-40"'
+    f' --prop title="Normal · bell curve (reference)"'
     f' --prop series1=Samples:{BELL_CSV}'
-    f' --prop binCount=20'
-    f' --prop fill=2F5597'
-    f' --prop "series.shadow=000000-5-45-3-30"'
-    f' --prop axismin=0'
-    f' --prop axismax=25'
-    f' --prop majorunit=5'
+    f' --prop binCount=18 --prop fill=2F5597'
     f' --prop xAxisTitle="Score" --prop yAxisTitle="Count"'
-    f' --prop axisTitle.color=4B5563'
-    f' --prop axisTitle.size=11'
-    f' --prop axisTitle.bold=true'
-    f' --prop "axisfont=9:6B7280:Helvetica Neue"'
-    f' --prop "axisline=6B7280:1"'
-    f' --prop gridlineColor=EEEEEE'
-    f' --prop plotareafill=FAFBFC'
-    f' --prop "plotarea.border=D0D7DE:1"'
-    f' --prop chartareafill=FFFFFF'
-    f' --prop "chartarea.border=E5E5E5:0.75"'
-    f' --prop dataLabels=true'
-    f' --prop "datalabels.numfmt=0"'
-    f' --prop legend=top'
-    f' --prop "legendfont=9:6B7280:Helvetica Neue"'
+    f'{ZOO}'
+    f' --prop x=0 --prop y=0 --prop width=13 --prop height=18')
+
+# Features: bimodal — two hidden populations. Narrow bins reveal the split.
+cli(f'add "{FILE}" "/2-Distribution Zoo" --type chart'
+    f' --prop chartType=histogram'
+    f' --prop title="Bimodal · two hidden cohorts"'
+    f' --prop series1=Score:{BIMODAL_CSV}'
+    f' --prop binCount=22 --prop fill=ED7D31'
+    f' --prop xAxisTitle="Test score" --prop yAxisTitle="Students"'
+    f'{ZOO}'
+    f' --prop x=14 --prop y=0 --prop width=13 --prop height=18')
+
+# Features: right-skewed log-normal. Mean >> median, long tail to the right.
+cli(f'add "{FILE}" "/2-Distribution Zoo" --type chart'
+    f' --prop chartType=histogram'
+    f' --prop title="Right-skewed · log-normal (income)"'
+    f' --prop series1=Income:{LOGNORM_CSV}'
+    f' --prop binCount=20 --prop fill=70AD47'
+    f' --prop xAxisTitle="Monthly income ($k)" --prop yAxisTitle="People"'
+    f'{ZOO}'
+    f' --prop x=0 --prop y=19 --prop width=13 --prop height=18')
+
+# Features: left-skewed — retirement ages cluster high, tail stretches left.
+cli(f'add "{FILE}" "/2-Distribution Zoo" --type chart'
+    f' --prop chartType=histogram'
+    f' --prop title="Left-skewed · retirement ages"'
+    f' --prop series1=Age:{LEFT_CSV}'
+    f' --prop binCount=18 --prop fill=7030A0'
+    f' --prop xAxisTitle="Age at retirement" --prop yAxisTitle="Retirees"'
+    f'{ZOO}'
+    f' --prop x=14 --prop y=19 --prop width=13 --prop height=18')
+
+# Features: uniform — every value equally likely. binSize emphasizes the
+# "flat floor" visual tell.
+cli(f'add "{FILE}" "/2-Distribution Zoo" --type chart'
+    f' --prop chartType=histogram'
+    f' --prop title="Uniform · flat floor"'
+    f' --prop series1=Draws:{UNIFORM_CSV}'
+    f' --prop binSize=10 --prop fill=00B0F0'
+    f' --prop xAxisTitle="Random draw (0-100)" --prop yAxisTitle="Count"'
+    f'{ZOO}'
+    f' --prop x=0 --prop y=38 --prop width=13 --prop height=18')
+
+# Features: heavy-tailed Pareto + overflowBin. Fences the catastrophic tail
+# so the interesting bulk of the distribution stays readable.
+cli(f'add "{FILE}" "/2-Distribution Zoo" --type chart'
+    f' --prop chartType=histogram'
+    f' --prop title="Heavy-tailed · Pareto (overflow=250)"'
+    f' --prop series1=Latency:{PARETO_CSV}'
+    f' --prop binSize=20 --prop overflowBin=250 --prop fill=C00000'
+    f' --prop xAxisTitle="Latency (ms)" --prop yAxisTitle="Requests"'
+    f'{ZOO}'
     f' --prop x=14 --prop y=38 --prop width=13 --prop height=18')
+
+
+# ==========================================================================
+# Sheet 3: "3-Theme Gallery"
+#
+# Six complete design themes applied to the SAME bell-curve dataset. Each
+# theme is a coordinated palette: plot-area fill, chart-area fill, series
+# fill, gridline color, axis line color, tick-label color, title color,
+# title font — all chosen to read as one coherent mood.
+#
+# Grid:
+#   ┌─────────────┬─────────────┐
+#   │ 1. Midnight │ 2. Sunset   │
+#   ├─────────────┼─────────────┤
+#   │ 3. Forest   │ 4. Mono     │
+#   ├─────────────┼─────────────┤
+#   │ 5. Neon     │ 6. Pastel   │
+#   └─────────────┴─────────────┘
+# ==========================================================================
+print("\n--- 3-Theme Gallery ---")
+cli(f'add "{FILE}" / --type sheet --prop name="3-Theme Gallery"')
+
+# Theme 1 · Midnight Academia (dark navy + gold, serif title)
+# Features: dark plot area, gold bars, series.shadow, title.shadow
+cli(f'add "{FILE}" "/3-Theme Gallery" --type chart'
+    f' --prop chartType=histogram'
+    f' --prop title="Midnight Academia"'
+    f' --prop title.color=F5F1E0 --prop title.size=14 --prop title.bold=true'
+    f' --prop title.font="Georgia"'
+    f' --prop "title.shadow=000000-6-45-3-70"'
+    f' --prop series1=Samples:{BELL_CSV}'
+    f' --prop binCount=18 --prop fill=F0C96A'
+    f' --prop "series.shadow=000000-6-45-3-55"'
+    f' --prop plotareafill=1A1F2C --prop "plotarea.border=3A3E4E:1"'
+    f' --prop chartareafill=0B0F18 --prop "chartarea.border=2A2E3E:0.75"'
+    f' --prop gridlineColor=2F3544'
+    f' --prop "axisfont=9:B8B090:Georgia"'
+    f' --prop xAxisTitle="Score" --prop yAxisTitle="Count"'
+    f' --prop axisTitle.color=C9B87A --prop axisTitle.size=10'
+    f' --prop axisTitle.font="Georgia"'
+    f' --prop "axisline=5A5848:1"'
+    f' --prop x=0 --prop y=0 --prop width=13 --prop height=18')
+
+# Theme 2 · Sunset Terracotta (warm cream + coral, serif)
+cli(f'add "{FILE}" "/3-Theme Gallery" --type chart'
+    f' --prop chartType=histogram'
+    f' --prop title="Sunset Terracotta"'
+    f' --prop title.color=3F2818 --prop title.size=14 --prop title.bold=true'
+    f' --prop title.font="Georgia"'
+    f' --prop series1=Samples:{BELL_CSV}'
+    f' --prop binCount=18 --prop fill=E85D4A'
+    f' --prop plotareafill=FFF5E8 --prop "plotarea.border=F0D8B0:1"'
+    f' --prop chartareafill=FFE6C7 --prop "chartarea.border=E6BC88:1"'
+    f' --prop gridlineColor=F5C98A'
+    f' --prop "axisfont=9:6B4A2A:Georgia"'
+    f' --prop xAxisTitle="Score" --prop yAxisTitle="Count"'
+    f' --prop axisTitle.color=A8522C --prop axisTitle.size=10'
+    f' --prop axisTitle.font="Georgia"'
+    f' --prop "axisline=C08050:1"'
+    f' --prop x=14 --prop y=0 --prop width=13 --prop height=18')
+
+# Theme 3 · Forest Parchment (beige + forest green, serif)
+cli(f'add "{FILE}" "/3-Theme Gallery" --type chart'
+    f' --prop chartType=histogram'
+    f' --prop title="Forest Parchment"'
+    f' --prop title.color=1F3A1F --prop title.size=14 --prop title.bold=true'
+    f' --prop title.font="Georgia"'
+    f' --prop series1=Samples:{BELL_CSV}'
+    f' --prop binCount=18 --prop fill=2F5D3A'
+    f' --prop plotareafill=F3EDD8 --prop "plotarea.border=C8B890:1"'
+    f' --prop chartareafill=EADFBE --prop "chartarea.border=A89858:1"'
+    f' --prop gridlineColor=C0B888'
+    f' --prop "axisfont=9:4A5A3A:Georgia"'
+    f' --prop xAxisTitle="Score" --prop yAxisTitle="Count"'
+    f' --prop axisTitle.color=3F5A2F --prop axisTitle.size=10'
+    f' --prop axisTitle.font="Georgia"'
+    f' --prop "axisline=6A7A4A:1"'
+    f' --prop x=0 --prop y=19 --prop width=13 --prop height=18')
+
+# Theme 4 · Editorial Mono (pure grayscale, sans)
+cli(f'add "{FILE}" "/3-Theme Gallery" --type chart'
+    f' --prop chartType=histogram'
+    f' --prop title="Editorial Mono"'
+    f' --prop title.color=111111 --prop title.size=14 --prop title.bold=true'
+    f' --prop title.font="Helvetica Neue"'
+    f' --prop series1=Samples:{BELL_CSV}'
+    f' --prop binCount=18 --prop fill=2A2A2A'
+    f' --prop plotareafill=FFFFFF --prop "plotarea.border=CCCCCC:0.75"'
+    f' --prop chartareafill=FAFAFA --prop "chartarea.border=E0E0E0:0.75"'
+    f' --prop gridlineColor=EEEEEE'
+    f' --prop "axisfont=9:555555:Helvetica Neue"'
+    f' --prop xAxisTitle="Score" --prop yAxisTitle="Count"'
+    f' --prop axisTitle.color=333333 --prop axisTitle.size=10'
+    f' --prop axisTitle.font="Helvetica Neue"'
+    f' --prop "axisline=888888:1"'
+    f' --prop x=14 --prop y=19 --prop width=13 --prop height=18')
+
+# Theme 5 · Neon Terminal (black + electric cyan, mono)
+cli(f'add "{FILE}" "/3-Theme Gallery" --type chart'
+    f' --prop chartType=histogram'
+    f' --prop title="Neon Terminal"'
+    f' --prop title.color=00F0C8 --prop title.size=14 --prop title.bold=true'
+    f' --prop title.font="Courier New"'
+    f' --prop "title.shadow=00F0C8-6-45-0-40"'
+    f' --prop series1=Samples:{BELL_CSV}'
+    f' --prop binCount=18 --prop fill=00F0C8'
+    f' --prop "series.shadow=00F0C8-8-45-0-45"'
+    f' --prop plotareafill=0A0A14 --prop "plotarea.border=1F2F3F:1"'
+    f' --prop chartareafill=000008 --prop "chartarea.border=1F1F2F:1"'
+    f' --prop gridlineColor=1A2A3A'
+    f' --prop "axisfont=9:00D0E8:Courier New"'
+    f' --prop xAxisTitle="Score" --prop yAxisTitle="Count"'
+    f' --prop axisTitle.color=00D0E8 --prop axisTitle.size=10'
+    f' --prop axisTitle.font="Courier New"'
+    f' --prop "axisline=00707F:1"'
+    f' --prop x=0 --prop y=38 --prop width=13 --prop height=18')
+
+# Theme 6 · Pastel Bloom (lavender cream + rose, sans)
+cli(f'add "{FILE}" "/3-Theme Gallery" --type chart'
+    f' --prop chartType=histogram'
+    f' --prop title="Pastel Bloom"'
+    f' --prop title.color=5A3C4A --prop title.size=14 --prop title.bold=true'
+    f' --prop title.font="Helvetica Neue"'
+    f' --prop series1=Samples:{BELL_CSV}'
+    f' --prop binCount=18 --prop fill=F5A7C8'
+    f' --prop plotareafill=FDF4F8 --prop "plotarea.border=F0D0E0:1"'
+    f' --prop chartareafill=FAEDF2 --prop "chartarea.border=F0C0D8:1"'
+    f' --prop gridlineColor=F5D8E5'
+    f' --prop "axisfont=9:8A6878:Helvetica Neue"'
+    f' --prop xAxisTitle="Score" --prop yAxisTitle="Count"'
+    f' --prop axisTitle.color=A04C6A --prop axisTitle.size=10'
+    f' --prop axisTitle.font="Helvetica Neue"'
+    f' --prop "axisline=C888A0:1"'
+    f' --prop x=14 --prop y=38 --prop width=13 --prop height=18')
+
+
+# ==========================================================================
+# Sheet 4: "4-Typography"
+#
+# Four font-family "type specimens". Same data, same geometry, same colors —
+# only the font varies. Side-by-side, this shows how typography alone reads
+# as tone: Helvetica is corporate, Georgia is editorial, Courier is data,
+# Verdana is approachable.
+# ==========================================================================
+print("\n--- 4-Typography ---")
+cli(f'add "{FILE}" / --type sheet --prop name="4-Typography"')
+
+# Specimen 1 · Helvetica Neue (modern sans — dashboards, corporate reports)
+cli(f'add "{FILE}" "/4-Typography" --type chart'
+    f' --prop chartType=histogram'
+    f' --prop title="Helvetica Neue · modern sans"'
+    f' --prop title.color=1F2937 --prop title.size=16 --prop title.bold=true'
+    f' --prop title.font="Helvetica Neue"'
+    f' --prop series1=Samples:{BELL_CSV}'
+    f' --prop binCount=18 --prop fill=4472C4'
+    f' --prop xAxisTitle="Score" --prop yAxisTitle="Count"'
+    f' --prop axisTitle.color=4472C4 --prop axisTitle.size=11'
+    f' --prop axisTitle.font="Helvetica Neue"'
+    f' --prop "axisfont=10:6B7280:Helvetica Neue"'
+    f' --prop gridlineColor=EEEEEE'
+    f' --prop plotareafill=FFFFFF --prop "plotarea.border=E5E7EB:0.75"'
+    f' --prop chartareafill=F9FAFB --prop "chartarea.border=E5E7EB:0.75"'
+    f' --prop x=0 --prop y=0 --prop width=13 --prop height=18')
+
+# Specimen 2 · Georgia (editorial serif — magazines, long-form reports)
+cli(f'add "{FILE}" "/4-Typography" --type chart'
+    f' --prop chartType=histogram'
+    f' --prop title="Georgia · editorial serif"'
+    f' --prop title.color=3F2818 --prop title.size=16 --prop title.bold=true'
+    f' --prop title.font="Georgia"'
+    f' --prop series1=Samples:{BELL_CSV}'
+    f' --prop binCount=18 --prop fill=A8522C'
+    f' --prop xAxisTitle="Score" --prop yAxisTitle="Count"'
+    f' --prop axisTitle.color=A8522C --prop axisTitle.size=11'
+    f' --prop axisTitle.font="Georgia"'
+    f' --prop "axisfont=10:6B4A2A:Georgia"'
+    f' --prop gridlineColor=F0E8D8'
+    f' --prop plotareafill=FFFBF3 --prop "plotarea.border=E8D8B8:0.75"'
+    f' --prop chartareafill=FDF6E8 --prop "chartarea.border=E8D8B8:0.75"'
+    f' --prop x=14 --prop y=0 --prop width=13 --prop height=18')
+
+# Specimen 3 · Courier New (monospace — data, telemetry, engineering)
+cli(f'add "{FILE}" "/4-Typography" --type chart'
+    f' --prop chartType=histogram'
+    f' --prop title="Courier New · data mono"'
+    f' --prop title.color=1A3A1A --prop title.size=16 --prop title.bold=true'
+    f' --prop title.font="Courier New"'
+    f' --prop series1=Samples:{BELL_CSV}'
+    f' --prop binCount=18 --prop fill=2F8F4F'
+    f' --prop xAxisTitle="Score" --prop yAxisTitle="Count"'
+    f' --prop axisTitle.color=2F8F4F --prop axisTitle.size=11'
+    f' --prop axisTitle.font="Courier New"'
+    f' --prop "axisfont=10:3A5A3A:Courier New"'
+    f' --prop gridlineColor=E0EDE0'
+    f' --prop plotareafill=F7FBF7 --prop "plotarea.border=C8DCC8:0.75"'
+    f' --prop chartareafill=F0F7F0 --prop "chartarea.border=C8DCC8:0.75"'
+    f' --prop x=0 --prop y=19 --prop width=13 --prop height=18')
+
+# Specimen 4 · Verdana (friendly sans — onboarding, public-facing UI)
+cli(f'add "{FILE}" "/4-Typography" --type chart'
+    f' --prop chartType=histogram'
+    f' --prop title="Verdana · friendly sans"'
+    f' --prop title.color=4A2B6A --prop title.size=16 --prop title.bold=true'
+    f' --prop title.font="Verdana"'
+    f' --prop series1=Samples:{BELL_CSV}'
+    f' --prop binCount=18 --prop fill=8E4DBB'
+    f' --prop xAxisTitle="Score" --prop yAxisTitle="Count"'
+    f' --prop axisTitle.color=8E4DBB --prop axisTitle.size=11'
+    f' --prop axisTitle.font="Verdana"'
+    f' --prop "axisfont=10:6B4A8A:Verdana"'
+    f' --prop gridlineColor=ECE0F4'
+    f' --prop plotareafill=FCF7FF --prop "plotarea.border=D8C4E8:0.75"'
+    f' --prop chartareafill=F6EDFA --prop "chartarea.border=D8C4E8:0.75"'
+    f' --prop x=14 --prop y=19 --prop width=13 --prop height=18')
+
+
+# ==========================================================================
+# Sheet 5: "5-ML Dashboard"
+#
+# A cohesive six-chart "Production ML Model Report". Every chart wears the
+# same corporate dashboard uniform — same typography, same frames, same
+# gridlines — but each shows a different slice of the model's behavior,
+# deliberately using a different color + binning strategy so the six read
+# as a single dashboard at a glance.
+#
+#   Row 1:  Inference latency (ms)   |  Prediction confidence (%)
+#   Row 2:  |Residual| (logit)       |  Token length (chars)
+#   Row 3:  GPU utilization (%)      |  Cost per request ($ × 0.001)
+# ==========================================================================
+print("\n--- 5-ML Dashboard ---")
+cli(f'add "{FILE}" / --type sheet --prop name="5-ML Dashboard"')
+
+DASH = (
+    ' --prop title.color=1F2937 --prop title.size=12 --prop title.bold=true'
+    ' --prop title.font="Helvetica Neue"'
+    ' --prop axisTitle.color=6B7280 --prop axisTitle.size=9'
+    ' --prop axisTitle.font="Helvetica Neue"'
+    ' --prop "axisfont=8:6B7280:Helvetica Neue"'
+    ' --prop gridlineColor=F0F0F0'
+    ' --prop plotareafill=FFFFFF --prop "plotarea.border=E5E7EB:0.75"'
+    ' --prop chartareafill=F9FAFB --prop "chartarea.border=E5E7EB:0.75"'
+    ' --prop "axisline=9CA3AF:0.75"'
+    ' --prop dataLabels=false'
+)
+
+# 1 · Inference Latency — heavy-tail, overflow-fenced, red for "watch this"
+cli(f'add "{FILE}" "/5-ML Dashboard" --type chart'
+    f' --prop chartType=histogram'
+    f' --prop title="Inference Latency · p50-p99 (ms)"'
+    f' --prop series1=Latency:{LATENCY_CSV}'
+    f' --prop binSize=25 --prop overflowBin=300 --prop fill=EF4444'
+    f' --prop "series.shadow=EF4444-4-45-2-25"'
+    f' --prop xAxisTitle="Latency (ms)" --prop yAxisTitle="Requests"'
+    f'{DASH}'
+    f' --prop x=0 --prop y=0 --prop width=13 --prop height=18')
+
+# 2 · Prediction Confidence — beta-like, axismin/max locked to 0..100
+cli(f'add "{FILE}" "/5-ML Dashboard" --type chart'
+    f' --prop chartType=histogram'
+    f' --prop title="Prediction Confidence"'
+    f' --prop series1=Confidence:{CONFIDENCE_CSV}'
+    f' --prop binSize=5 --prop fill=10B981'
+    f' --prop axismin=0 --prop majorunit=50'
+    f' --prop xAxisTitle="Softmax confidence (%)" --prop yAxisTitle="Samples"'
+    f'{DASH}'
+    f' --prop x=14 --prop y=0 --prop width=13 --prop height=18')
+
+# 3 · Residual Magnitude — half-normal, intervalClosed=l so bin=0 catches zeros
+cli(f'add "{FILE}" "/5-ML Dashboard" --type chart'
+    f' --prop chartType=histogram'
+    f' --prop title="|Residual| · model calibration"'
+    f' --prop series1=Residual:{ERROR_MAG_CSV}'
+    f' --prop binSize=0.25 --prop intervalClosed=l --prop fill=F59E0B'
+    f' --prop xAxisTitle="|y - ŷ| (logit)" --prop yAxisTitle="Samples"'
+    f'{DASH}'
+    f' --prop x=0 --prop y=19 --prop width=13 --prop height=18')
+
+# 4 · Token Length — bimodal (short prompts vs long prompts)
+cli(f'add "{FILE}" "/5-ML Dashboard" --type chart'
+    f' --prop chartType=histogram'
+    f' --prop title="Token Length · short vs long prompts"'
+    f' --prop series1=Tokens:{TOKEN_CSV}'
+    f' --prop binCount=24 --prop fill=6366F1'
+    f' --prop xAxisTitle="Tokens" --prop yAxisTitle="Requests"'
+    f'{DASH}'
+    f' --prop x=14 --prop y=19 --prop width=13 --prop height=18')
+
+# 5 · GPU Utilization — locked axis range so dashboard charts share scale
+cli(f'add "{FILE}" "/5-ML Dashboard" --type chart'
+    f' --prop chartType=histogram'
+    f' --prop title="GPU Utilization"'
+    f' --prop series1=GPU:{GPU_CSV}'
+    f' --prop binSize=5 --prop fill=8B5CF6'
+    f' --prop axismin=0 --prop axismax=50 --prop majorunit=10'
+    f' --prop xAxisTitle="Utilization (%)" --prop yAxisTitle="Samples"'
+    f'{DASH}'
+    f' --prop x=0 --prop y=38 --prop width=13 --prop height=18')
+
+# 6 · Cost per Request — log-normal, overflow-fenced, data labels with numfmt
+cli(f'add "{FILE}" "/5-ML Dashboard" --type chart'
+    f' --prop chartType=histogram'
+    f' --prop title="Cost per Request ($ × 0.001)"'
+    f' --prop series1=Cost:{COST_CSV}'
+    f' --prop binSize=5 --prop overflowBin=120 --prop fill=EC4899'
+    f' --prop dataLabels=true --prop "datalabels.numfmt=0"'
+    f' --prop xAxisTitle="Cost (m$)" --prop yAxisTitle="Requests"'
+    f'{DASH}'
+    f' --prop x=14 --prop y=38 --prop width=13 --prop height=18')
+
 
 print(f"\nDone! Generated: {FILE}")
-print("  5 sheets, 22 histograms total")
-print("  Sheet 1 (1-Binning Modes):        auto / binCount / binSize / underflow+overflow")
-print("  Sheet 2 (2-Styled Histograms):    fill+legend / xGridlineColor / gapWidth+bold / minimal")
-print("  Sheet 3 (3-Typography & Colors):  title.* / axisTitle.* / axisfont / all-combined")
-print("  Sheet 4 (4-Distribution Gallery): bimodal / right-skew / uniform / left-skew / heavy-tail / normal")
-print("  Sheet 5 (5-Parity Knobs):         axis scaling / shadows / area fill+border / axisline / datalabels.numfmt / everything")
+print("  6 sheets, 29 histograms total")
+print("  Sheet 0 (0-Hero):              1 magazine-grade full-bleed hero poster")
+print("  Sheet 1 (1-Binning Lab):       6 charts — every binning knob, identical styling")
+print("  Sheet 2 (2-Distribution Zoo):  6 canonical real-world distribution shapes")
+print("  Sheet 3 (3-Theme Gallery):     6 design themes on the SAME dataset")
+print("  Sheet 4 (4-Typography):        4 font-family type specimens")
+print("  Sheet 5 (5-ML Dashboard):      6-chart Production ML Model Report")
