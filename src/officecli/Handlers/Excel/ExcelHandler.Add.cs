@@ -1398,6 +1398,30 @@ public partial class ExcelHandler
                     extChartPart.ChartSpace = cxChartSpace;
                     extChartPart.ChartSpace.Save();
 
+                    // CONSISTENCY(chartex-sidecars): every Office-canonical
+                    // chartEx part requires two sidecar parts linked via
+                    // relationships: a ChartStylePart (chs:chartStyle) and a
+                    // ChartColorStylePart (chs:colorStyle). Excel rejects
+                    // files that have the chartEx body but lack these
+                    // sidecars (silent "We found a problem" repair that
+                    // DELETES the entire drawing containing the chart —
+                    // slicers and all other anchors get collateral-damaged).
+                    // The SDK validator doesn't flag this because each part
+                    // is independently schema-valid; it's only the absence
+                    // of the sidecar relationship that Excel trips on.
+                    //
+                    // We ship canonical default-style content as embedded
+                    // resources copied verbatim from an Excel-generated
+                    // reference treemap; the content is style/palette only,
+                    // it has no dependency on the specific chart layout or
+                    // data and can be reused across all chartEx types.
+                    var stylePart = extChartPart.AddNewPart<ChartStylePart>();
+                    using (var styleStream = LoadChartExResource("chartex-style.xml"))
+                        stylePart.FeedData(styleStream);
+                    var colorStylePart = extChartPart.AddNewPart<ChartColorStylePart>();
+                    using (var colorStream = LoadChartExResource("chartex-colors.xml"))
+                        colorStylePart.FeedData(colorStream);
+
                     var cxRelId = drawingsPart.GetIdOfPart(extChartPart);
                     var cxAnchor = new XDR.TwoCellAnchor();
                     cxAnchor.Append(new XDR.FromMarker(

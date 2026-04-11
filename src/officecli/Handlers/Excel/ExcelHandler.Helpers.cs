@@ -1430,6 +1430,25 @@ public partial class ExcelHandler
     private const string ExcelChartExUri = "http://schemas.microsoft.com/office/drawing/2014/chartex";
 
     /// <summary>
+    /// Load a chartEx sidecar resource (style / colors XML) bundled as an
+    /// embedded resource. Files are copied verbatim from an Excel reference
+    /// treemap and reused for every chartEx type — they carry default
+    /// style/palette content that has no dependency on chart layout or data.
+    /// See the chartex-sidecars CONSISTENCY note in ExcelHandler.Add.cs for
+    /// why these sidecars are load-bearing (Excel deletes the whole drawing
+    /// if they are missing from the relationships).
+    /// </summary>
+    private static Stream LoadChartExResource(string fileName)
+    {
+        var assembly = typeof(ExcelHandler).Assembly;
+        var resourceName = $"OfficeCli.Resources.{fileName}";
+        var stream = assembly.GetManifestResourceStream(resourceName)
+            ?? throw new InvalidOperationException(
+                $"Embedded resource not found: {resourceName}. Ensure it is declared in officecli.csproj.");
+        return stream;
+    }
+
+    /// <summary>
     /// Check if an XDR.GraphicFrame contains an extended chart (cx:chart).
     /// </summary>
     private static bool IsExtendedChartFrame(XDR.GraphicFrame gf)

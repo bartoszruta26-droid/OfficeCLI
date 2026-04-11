@@ -28,6 +28,8 @@
     <EmbeddedResource Include="Resources/preview.js" />
     <EmbeddedResource Include="Resources/watch-sse-core.js" />
     <EmbeddedResource Include="Resources/watch-overlay.js" />
+    <EmbeddedResource Include="Resources/chartex-style.xml" />
+    <EmbeddedResource Include="Resources/chartex-colors.xml" />
   </ItemGroup>
 
   <ItemGroup>
