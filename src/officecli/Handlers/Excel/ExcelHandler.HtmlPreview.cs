@@ -438,8 +438,8 @@ public partial class ExcelHandler
             totalTableWidthPt += colWidths.TryGetValue(c, out var cw) ? cw : defaultColWidthPt;
         }
 
-        // Start table
-        sb.AppendLine("<div class=\"table-wrapper\">");
+        // Start table (position:relative for chart overlays)
+        sb.AppendLine("<div class=\"table-wrapper\" style=\"position:relative\">");
         sb.AppendLine($"<table style=\"width:{totalTableWidthPt:0.##}pt\">");
         sb.AppendLine($"<caption class=\"sr-only\">{HtmlEncode(sheetName)}</caption>");
 
@@ -490,66 +490,6 @@ public partial class ExcelHandler
         sb.AppendLine("<tbody>");
         for (int r = 1; r <= maxRow; r++)
         {
-            // Insert chart at its anchor row position
-            if (chartAtRow.TryGetValue(r, out var chartEntry))
-            {
-                // Chart fromCol is 0-based; columns in table are 1-based
-                var chartFromCol1 = chartEntry.fromCol + 1; // convert to 1-based
-                var chartToCol1 = chartEntry.toCol; // toCol is exclusive in anchor
-                // Count visible columns before and within chart range
-                var colsBefore = Enumerable.Range(1, Math.Min(chartFromCol1 - 1, maxCol))
-                    .Count(c => !hiddenCols.Contains(c));
-                var chartColSpan = Enumerable.Range(chartFromCol1, Math.Min(chartToCol1, maxCol) - chartFromCol1 + 1)
-                    .Count(c => !hiddenCols.Contains(c));
-                var rowSpan = chartEntry.toRow - r;
-
-                sb.Append($"<tr data-row=\"{sheetIdx}-{r}\">");
-                sb.Append($"<th class=\"row-header\" data-path=\"/{HtmlEncode(sheetName)}/row[{r}]\">{r}</th>");
-                // Empty cells before the chart
-                for (int c = 1; c < chartFromCol1 && c <= maxCol; c++)
-                {
-                    if (hiddenCols.Contains(c)) continue;
-                    var cellRef = $"{IndexToColumnName(c)}{r}";
-                    var cell = cellMap.TryGetValue((r, c), out var mc) ? mc : null;
-                    var style = GetCellStyleCss(cell, stylesheet, frozenRows, frozenCols, r, c, frozenLeftOffsets, frozenTopOffsets, cfMap, dataBarMap, iconSetMap);
-                    var value = cell != null ? GetFormattedCellValue(cell, stylesheet, evaluator) : "";
-                    sb.Append($"<td data-path=\"/{HtmlEncode(sheetName)}/{cellRef}\"{GetFormulaAttr(cell)}{style}>{BuildCellContent(cellRef, value, dataBarMap, iconSetMap)}</td>");
-                }
-                // Chart cell spanning multiple rows and columns
-                if (chartColSpan > 0)
-                    sb.Append($"<td colspan=\"{chartColSpan}\" rowspan=\"{rowSpan}\" style=\"padding:0;border:none;vertical-align:top\">{chartEntry.html}</td>");
-                // Empty cells after the chart
-                for (int c = chartToCol1 + 1; c <= maxCol; c++)
-                {
-                    if (hiddenCols.Contains(c)) continue;
-                    var emptyRef = $"{IndexToColumnName(c)}{r}";
-                    sb.Append($"<td data-path=\"/{HtmlEncode(sheetName)}/{emptyRef}\"></td>");
-                }
-                sb.AppendLine("</tr>");
-                continue;
-            }
-            // Skip rows that are within a chart's rowspan (but still render non-chart columns)
-            if (charts != null && charts.Any(ch => r > ch.fromRow && r < ch.toRow))
-            {
-                sb.Append($"<tr data-row=\"{sheetIdx}-{r}\">");
-                sb.Append($"<th class=\"row-header\" data-path=\"/{HtmlEncode(sheetName)}/row[{r}]\">{r}</th>");
-                var activeChart = charts.First(ch => r > ch.fromRow && r < ch.toRow);
-                var acFromCol1 = activeChart.fromCol + 1;
-                var acToCol1 = activeChart.toCol;
-                for (int c = 1; c <= maxCol; c++)
-                {
-                    if (hiddenCols.Contains(c)) continue;
-                    if (c >= acFromCol1 && c <= acToCol1) continue; // spanned by chart rowspan
-                    var cellRef = $"{IndexToColumnName(c)}{r}";
-                    var cell = cellMap.TryGetValue((r, c), out var mc) ? mc : null;
-                    var style = GetCellStyleCss(cell, stylesheet, frozenRows, frozenCols, r, c, frozenLeftOffsets, frozenTopOffsets, cfMap, dataBarMap, iconSetMap);
-                    var value = cell != null ? GetFormattedCellValue(cell, stylesheet, evaluator) : "";
-                    sb.Append($"<td data-path=\"/{HtmlEncode(sheetName)}/{cellRef}\"{GetFormulaAttr(cell)}{style}>{BuildCellContent(cellRef, value, dataBarMap, iconSetMap)}</td>");
-                }
-                sb.AppendLine("</tr>");
-                continue;
-            }
-
             if (hiddenRows.Contains(r)) { sb.AppendLine($"<tr data-row=\"{sheetIdx}-{r}\" style=\"display:none\"></tr>"); continue; }
             bool isRowFrozen = frozenRows > 0 && r <= frozenRows;
             var rowStyles = new List<string>();
@@ -606,6 +546,50 @@ public partial class ExcelHandler
         }
         sb.AppendLine("</tbody>");
         sb.AppendLine("</table>");
+
+        // Render charts as absolute-positioned overlays on top of the table grid.
+        // Position is computed from anchor row/col using column widths and row heights.
+        if (charts != null)
+        {
+            var rowHeaderWidthPt = 30.0; // matches .row-header-col CSS
+            foreach (var (fromRow, toRow, fromCol, toCol, html) in charts)
+            {
+                // Compute left position: sum of column widths from col 1 to fromCol + row header
+                double leftPt = rowHeaderWidthPt;
+                for (int c = 1; c <= fromCol && c <= maxCol; c++)
+                {
+                    if (hiddenCols.Contains(c)) continue;
+                    leftPt += colWidths.TryGetValue(c, out var cw) ? cw : defaultColWidthPt;
+                }
+                // Compute top position: sum of row heights from row 1 to fromRow + header row (~24px)
+                double topPt = 24.0 * 0.75; // header row height in pt
+                for (int r = 1; r <= fromRow && r <= maxRow; r++)
+                {
+                    if (hiddenRows.Contains(r)) continue;
+                    topPt += rowHeights.TryGetValue(r, out var rh) ? rh : defaultRowHeightPt;
+                }
+                // Compute width/height from anchor span
+                double widthPt = 0;
+                for (int c = fromCol + 1; c <= toCol && c <= maxCol; c++)
+                {
+                    if (hiddenCols.Contains(c)) continue;
+                    widthPt += colWidths.TryGetValue(c, out var cw2) ? cw2 : defaultColWidthPt;
+                }
+                double heightPt = 0;
+                for (int r = fromRow + 1; r <= toRow && r <= maxRow; r++)
+                {
+                    if (hiddenRows.Contains(r)) continue;
+                    heightPt += rowHeights.TryGetValue(r, out var rh2) ? rh2 : defaultRowHeightPt;
+                }
+                if (widthPt < 100) widthPt = 400; // fallback min size
+                if (heightPt < 50) heightPt = 250;
+
+                sb.AppendLine($"<div style=\"position:absolute;left:{leftPt:0.##}pt;top:{topPt:0.##}pt;width:{widthPt:0.##}pt;height:{heightPt:0.##}pt;z-index:10;pointer-events:auto\">");
+                sb.Append(html);
+                sb.AppendLine("</div>");
+            }
+        }
+
         // Truncation warning
         if (truncated)
             sb.AppendLine($"<div class=\"truncation-warning\">Showing {maxRow} of {actualRow} rows, {maxCol} of {actualCol} columns</div>");
