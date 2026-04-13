@@ -615,6 +615,7 @@
             _selection = _cellDrag.snapshot.slice();
             applySelectionToDom();
             _cellDrag = null;
+            _suppressNextClick = true;
         }
     }
 
