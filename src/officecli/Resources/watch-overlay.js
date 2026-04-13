@@ -526,6 +526,70 @@
         e.stopPropagation();
     }, true);
 
+    // ===== Chart drag-to-move =====
+    var _chartDrag = null;
+    document.addEventListener('mousedown', function(e) {
+        if (e.button !== 0) return;
+        var chart = e.target.closest('.chart-container[data-path]');
+        if (!chart) return;
+        var path = chart.getAttribute('data-path');
+        if (!path) return;
+        _chartDrag = {
+            el: chart, path: path,
+            startX: e.clientX, startY: e.clientY,
+            origLeft: chart.offsetLeft, origTop: chart.offsetTop,
+            active: false
+        };
+        e.preventDefault();
+    }, true);
+    document.addEventListener('mousemove', function(e) {
+        if (!_chartDrag) return;
+        var dx = e.clientX - _chartDrag.startX;
+        var dy = e.clientY - _chartDrag.startY;
+        if (!_chartDrag.active) {
+            if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+            _chartDrag.active = true;
+            _chartDrag.el.style.position = 'relative';
+            _chartDrag.el.style.zIndex = '9999';
+            _chartDrag.el.style.opacity = '0.85';
+            _chartDrag.el.style.cursor = 'grabbing';
+        }
+        _chartDrag.el.style.left = dx + 'px';
+        _chartDrag.el.style.top = dy + 'px';
+    }, true);
+    document.addEventListener('mouseup', function(e) {
+        if (!_chartDrag) return;
+        var cd = _chartDrag;
+        _chartDrag = null;
+        if (!cd.active) return; // no drag, let click handle it
+        // Reset visual
+        cd.el.style.position = '';
+        cd.el.style.zIndex = '';
+        cd.el.style.opacity = '';
+        cd.el.style.cursor = '';
+        cd.el.style.left = '';
+        cd.el.style.top = '';
+        // Compute delta in pt (1px ≈ 0.75pt)
+        var dx = (e.clientX - cd.startX) * 0.75;
+        var dy = (e.clientY - cd.startY) * 0.75;
+        if (Math.abs(dx) < 2 && Math.abs(dy) < 2) return;
+        // Send position delta as x/y set
+        // Get current position from chart's computed style or bounding rect
+        var rect = cd.el.getBoundingClientRect();
+        var parentRect = cd.el.offsetParent ? cd.el.offsetParent.getBoundingClientRect() : { left: 0, top: 0 };
+        var newXPt = (rect.left - parentRect.left) * 0.75 + dx;
+        var newYPt = (rect.top - parentRect.top) * 0.75 + dy;
+        fetch('/api/edit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: cd.path, props: {
+                x: Math.round(newXPt) + 'pt',
+                y: Math.round(newYPt) + 'pt'
+            }})
+        }).catch(function() {});
+        _suppressNextClick = true;
+    }, true);
+
     // ===== Double-click inline editing (Excel-style) =====
     var _editingCell = null; // currently editing td element
     document.addEventListener('dblclick', function(e) {

@@ -1662,24 +1662,40 @@ internal class WatchServer : IDisposable
                 body = sb.ToString();
             }
 
-            // Parse: {"path": "/Sheet1/A1", "prop": "text", "value": "Hello"}
+            // Parse: {"path": "...", "prop": "text", "value": "Hello"}
+            // or:    {"path": "...", "props": {"x": "10pt", "y": "20pt"}}
             using var doc = System.Text.Json.JsonDocument.Parse(body);
             var root = doc.RootElement;
             var path = root.GetProperty("path").GetString() ?? "";
-            var prop = root.GetProperty("prop").GetString() ?? "text";
-            var value = root.GetProperty("value").GetString() ?? "";
 
             // Spawn officecli set as child process
             var exe = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "officecli";
             var psi = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = exe,
-                ArgumentList = { "set", _filePath, path, "--prop", $"{prop}={value}" },
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+            psi.ArgumentList.Add("set");
+            psi.ArgumentList.Add(_filePath);
+            psi.ArgumentList.Add(path);
+            if (root.TryGetProperty("props", out var propsEl) && propsEl.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                foreach (var kv in propsEl.EnumerateObject())
+                {
+                    psi.ArgumentList.Add("--prop");
+                    psi.ArgumentList.Add($"{kv.Name}={kv.Value.GetString() ?? ""}");
+                }
+            }
+            else
+            {
+                var prop = root.GetProperty("prop").GetString() ?? "text";
+                var value = root.GetProperty("value").GetString() ?? "";
+                psi.ArgumentList.Add("--prop");
+                psi.ArgumentList.Add($"{prop}={value}");
+            }
             using var proc = System.Diagnostics.Process.Start(psi);
             if (proc != null)
             {
