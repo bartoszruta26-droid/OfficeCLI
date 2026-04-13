@@ -80,7 +80,9 @@
     function _parseCellPath(path) {
         var m = path.match(/^(\/[^/]+)\/([A-Za-z]+)(\d+)$/);
         if (!m) return null;
-        return { sheet: m[1], col: m[2].toUpperCase(), row: parseInt(m[3], 10) };
+        var row = parseInt(m[3], 10);
+        if (row < 1) return null;
+        return { sheet: m[1], col: m[2].toUpperCase(), row: row };
     }
     function _colToNum(col) {
         var n = 0;
