@@ -1620,9 +1620,8 @@ public partial class ExcelHandler
                 var dt = DateTime.FromOADate(value);
                 // Context-sensitive m/mm: after h → minute, otherwise → month
                 // Strategy: mark minute 'm' as '\x01' placeholder, then convert remaining m→M
-                var dotnetFmt = fmtCode
-                    .Replace("AM/PM", "tt").Replace("am/pm", "tt")
-                    .Replace('Y', 'y').Replace('D', 'd');
+                var dotnetFmt = NormalizeDateFormatCase(
+                    fmtCode.Replace("AM/PM", "tt").Replace("am/pm", "tt"));
                 // Step 1: Replace h:mm and h:m patterns → mark minutes as placeholder
                 dotnetFmt = System.Text.RegularExpressions.Regex.Replace(dotnetFmt, @"([hH]+)([:.])(mm?)", m =>
                     m.Groups[1].Value + m.Groups[2].Value + new string('\x01', m.Groups[3].Value.Length));
@@ -1698,6 +1697,25 @@ public partial class ExcelHandler
             else break;
         }
         return count;
+    }
+
+    /// <summary>
+    /// Normalize Excel date/time format specifiers to .NET-compatible case.
+    /// Y→y, D→d, S→s only outside quoted strings to avoid corrupting literals
+    /// like "DISCOUNT".
+    /// </summary>
+    private static string NormalizeDateFormatCase(string fmtCode)
+    {
+        var sb = new StringBuilder(fmtCode.Length);
+        bool inQuote = false;
+        for (int i = 0; i < fmtCode.Length; i++)
+        {
+            var ch = fmtCode[i];
+            if (ch == '"') { inQuote = !inQuote; sb.Append(ch); continue; }
+            if (inQuote) { sb.Append(ch); continue; }
+            sb.Append(ch switch { 'Y' => 'y', 'D' => 'd', 'S' => 's', 'M' => 'm', 'H' => 'h', _ => ch });
+        }
+        return sb.ToString();
     }
 
     // ==================== CSS ====================
