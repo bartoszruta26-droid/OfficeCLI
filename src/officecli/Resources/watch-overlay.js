@@ -55,13 +55,13 @@
             // Highlight row/col headers (crosshair for entire range)
             for (var r = rect.minR; r <= rect.maxR; r++) {
                 try {
-                    var rs = '[data-path="' + (rect.sheet + '/row[' + r + ']').replace(/"/g, '\\"') + '"]';
+                    var rs = '[data-path="' + (rect.sheet + '/row[' + r + ']').replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"]';
                     document.querySelectorAll(rs).forEach(function(th) { th.classList.add('officecli-selected'); });
                 } catch(e) {}
             }
             for (var c = rect.minC; c <= rect.maxC; c++) {
                 try {
-                    var cs = '[data-path="' + (rect.sheet + '/col[' + _numToCol(c) + ']').replace(/"/g, '\\"') + '"]';
+                    var cs = '[data-path="' + (rect.sheet + '/col[' + _numToCol(c) + ']').replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"]';
                     document.querySelectorAll(cs).forEach(function(th) { th.classList.add('officecli-selected'); });
                 } catch(e) {}
             }
@@ -116,9 +116,9 @@
                     var cellMatch = _parseCellPath(path);
                     if (cellMatch && el.tagName === 'TD') {
                         try {
-                            var rSel = '[data-path="' + (cellMatch.sheet + '/row[' + cellMatch.row + ']').replace(/"/g, '\\"') + '"]';
+                            var rSel = '[data-path="' + (cellMatch.sheet + '/row[' + cellMatch.row + ']').replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"]';
                             document.querySelectorAll(rSel).forEach(function(th) { th.classList.add('officecli-selected'); });
-                            var cSel = '[data-path="' + (cellMatch.sheet + '/col[' + cellMatch.col + ']').replace(/"/g, '\\"') + '"]';
+                            var cSel = '[data-path="' + (cellMatch.sheet + '/col[' + cellMatch.col + ']').replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"]';
                             document.querySelectorAll(cSel).forEach(function(th) { th.classList.add('officecli-selected'); });
                         } catch(e2) {}
                     }
