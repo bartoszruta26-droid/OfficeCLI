@@ -108,13 +108,35 @@ public partial class ExcelHandler
     }
 
     /// <summary>
-    /// Save worksheet with automatic schema-order reorder.
-    /// Must be used instead of ws.Save() to prevent element ordering violations.
+    /// Mark a worksheet as dirty. The actual save (with schema-order reorder) is
+    /// deferred to <see cref="FlushDirtyParts"/> which runs in Dispose().
+    /// This replaces per-mutation Save() calls — batch operations over many cells
+    /// previously triggered one disk write per cell (O(n) saves); now they all
+    /// flush in a single pass at the end.
     /// </summary>
-    private static void SaveWorksheet(WorksheetPart part)
+    private void SaveWorksheet(WorksheetPart part)
     {
-        ReorderWorksheetChildren(GetSheet(part));
-        GetSheet(part).Save();
+        _dirtyWorksheets.Add(part);
+    }
+
+    /// <summary>
+    /// Flush all pending worksheet and stylesheet saves. Called from Dispose().
+    /// Each dirty WorksheetPart is reordered and saved exactly once regardless
+    /// of how many mutations targeted it.
+    /// </summary>
+    private void FlushDirtyParts()
+    {
+        foreach (var part in _dirtyWorksheets)
+        {
+            ReorderWorksheetChildren(GetSheet(part));
+            GetSheet(part).Save();
+        }
+        _dirtyWorksheets.Clear();
+        if (_dirtyStylesheet)
+        {
+            _doc.WorkbookPart?.WorkbookStylesPart?.Stylesheet?.Save();
+            _dirtyStylesheet = false;
+        }
     }
 
     /// <summary>
@@ -892,24 +914,63 @@ public partial class ExcelHandler
         return null;
     }
 
-    private static Cell FindOrCreateCell(SheetData sheetData, string cellRef)
+    /// <summary>
+    /// Find or create the Row for the given 1-based row index, using the per-SheetData
+    /// row index cache to avoid O(n) linear scans. New rows are inserted in sorted order
+    /// via binary search on the cache (O(log n)).
+    /// </summary>
+    private Row FindOrCreateRow(SheetData sheetData, uint rowIdx)
+    {
+        _rowIndex ??= new();
+        if (!_rowIndex.TryGetValue(sheetData, out var rowMap))
+        {
+            rowMap = new SortedList<uint, Row>();
+            foreach (var existingRow in sheetData.Elements<Row>())
+                if (existingRow.RowIndex?.HasValue == true)
+                    rowMap[existingRow.RowIndex.Value] = existingRow;
+            _rowIndex[sheetData] = rowMap;
+        }
+
+        if (rowMap.TryGetValue(rowIdx, out var row))
+            return row;
+
+        row = new Row { RowIndex = rowIdx };
+        // Binary search for predecessor in O(log n)
+        var keys = rowMap.Keys;
+        int lo = 0, hi = keys.Count - 1, predPos = -1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) / 2;
+            if (keys[mid] < rowIdx) { predPos = mid; lo = mid + 1; }
+            else hi = mid - 1;
+        }
+        if (predPos >= 0)
+            rowMap.Values[predPos].InsertAfterSelf(row);
+        else
+            sheetData.InsertAt(row, 0);
+        rowMap[rowIdx] = row;
+        return row;
+    }
+
+    /// <summary>
+    /// Invalidate the row index cache for a specific SheetData (or all sheets if null).
+    /// Must be called whenever rows are structurally modified (removed, shifted).
+    /// </summary>
+    private void InvalidateRowIndex(SheetData? sheetData = null)
+    {
+        if (sheetData != null)
+            _rowIndex?.Remove(sheetData);
+        else
+            _rowIndex = null;
+    }
+
+    private Cell FindOrCreateCell(SheetData sheetData, string cellRef)
     {
         var (colName, rowIdx) = ParseCellReference(cellRef);
 
-        // Find or create row
-        var row = sheetData.Elements<Row>().FirstOrDefault(r => r.RowIndex?.Value == rowIdx);
-        if (row == null)
-        {
-            row = new Row { RowIndex = (uint)rowIdx };
-            // Insert in order
-            var after = sheetData.Elements<Row>().LastOrDefault(r => (r.RowIndex?.Value ?? 0) < rowIdx);
-            if (after != null)
-                after.InsertAfterSelf(row);
-            else
-                sheetData.InsertAt(row, 0);
-        }
+        var row = FindOrCreateRow(sheetData, (uint)rowIdx);
 
-        // Find or create cell
+        // Cell lookup within row — O(m) where m = cols per row (typically small)
         var cell = row.Elements<Cell>().FirstOrDefault(c =>
             c.CellReference?.Value?.Equals(cellRef, StringComparison.OrdinalIgnoreCase) == true);
         if (cell == null)
@@ -1863,7 +1924,7 @@ public partial class ExcelHandler
                 }
             }
 
-            wsPart.Worksheet!.Save();
+            SaveWorksheet(wsPart);
         }
 
         return totalCount;
