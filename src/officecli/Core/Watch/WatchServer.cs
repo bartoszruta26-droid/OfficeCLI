@@ -1246,6 +1246,8 @@ internal class WatchServer : IDisposable
     private static Dictionary<string, string> SplitExcelRows(string html)
     {
         var rows = new Dictionary<string, string>();
+
+        // Static mode: extract <tr data-row="sheetIdx-rowNum"> elements
         var rx = new System.Text.RegularExpressions.Regex(@"<tr\s[^>]*data-row=""([^""]+)""[^>]*>");
         var matches = rx.Matches(html);
         for (int i = 0; i < matches.Count; i++)
@@ -1258,6 +1260,35 @@ internal class WatchServer : IDisposable
             if (endIdx >= 0)
                 rows[key] = html[contentStart..(endIdx + endTag.Length)];
         }
+
+        // Virt mode: extract rows from <script type="application/json" id="virt-data-N">
+        // Format: [{"r":R,"frozen":bool[,"h":H],"html":"<escaped inner html>"},...]
+        var scriptRx = new System.Text.RegularExpressions.Regex(
+            @"<script[^>]*id=""virt-data-(\d+)""[^>]*>([\s\S]*?)</script>");
+        var rowRx = new System.Text.RegularExpressions.Regex(
+            @"""r"":(\d+).*?""html"":""((?:[^""\\]|\\.)*)""");
+        var heightRx = new System.Text.RegularExpressions.Regex(@"""h"":(\d+(?:\.\d+)?)");
+        foreach (System.Text.RegularExpressions.Match scriptMatch in scriptRx.Matches(html))
+        {
+            var sheetIdx = scriptMatch.Groups[1].Value;
+            var json = scriptMatch.Groups[2].Value;
+            foreach (System.Text.RegularExpressions.Match rowMatch in rowRx.Matches(json))
+            {
+                var rowNum = rowMatch.Groups[1].Value;
+                var key = $"{sheetIdx}-{rowNum}";
+                if (rows.ContainsKey(key)) continue; // frozen row already captured from static <tr>
+                var innerHtml = rowMatch.Groups[2].Value
+                    .Replace("\\\"", "\"").Replace("\\\\", "\\")
+                    .Replace("\\n", "\n").Replace("\\r", "\r").Replace("\\t", "\t");
+                // Extract row height from metadata fields (the portion before "html":)
+                var htmlFieldOffset = rowMatch.Value.IndexOf("\"html\":", StringComparison.Ordinal);
+                var metaStr = htmlFieldOffset >= 0 ? rowMatch.Value.Substring(0, htmlFieldOffset) : "";
+                var hm = heightRx.Match(metaStr);
+                var heightStyle = hm.Success ? $" style=\"height:{hm.Groups[1].Value}pt\"" : "";
+                rows[key] = $"<tr data-row=\"{key}\"{heightStyle}>{innerHtml}</tr>";
+            }
+        }
+
         return rows;
     }
 
@@ -1266,7 +1297,16 @@ internal class WatchServer : IDisposable
     {
         if (string.IsNullOrEmpty(oldHtml) || string.IsNullOrEmpty(newHtml))
             return null;
-        if (!oldHtml.Contains("data-row=\"") || !newHtml.Contains("data-row=\""))
+        // Two valid row-data signals:
+        //  static: data-row="X..." where the value starts with an alphanumeric char (real keys
+        //          are "N-M" or "word-N-M"; JS template literals have data-row="' + ... which
+        //          starts with a single-quote, not alphanumeric).
+        //  virt:   id="virt-data-N" on <script> data elements (numeric suffix, not "{n}" template
+        //          used by the virt JS implementation script).
+        static bool HasRowData(string h) =>
+            System.Text.RegularExpressions.Regex.IsMatch(h, @"data-row=""[a-zA-Z0-9]") ||
+            System.Text.RegularExpressions.Regex.IsMatch(h, @"id=""virt-data-\d+""");
+        if (!HasRowData(oldHtml) || !HasRowData(newHtml))
             return null;
 
         // If chart overlay positions changed, fall back to full refresh.
