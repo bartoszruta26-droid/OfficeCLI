@@ -2216,10 +2216,21 @@ public partial class ExcelHandler
             if (desc) sc.Descending = true;
             ss.AppendChild(sc);
         }
-        // Place sortState after SheetData (standard position; autoFilter-nested placement is for filter-driven sort which we don't wire here).
-        var sheetData = ws.GetFirstChild<SheetData>();
-        if (sheetData != null) sheetData.InsertAfterSelf(ss);
-        else ws.AppendChild(ss);
+        // Honor OOXML CT_Worksheet schema order: sortState must come AFTER autoFilter
+        // when an autoFilter is present; otherwise it sits after sheetData. Placing it
+        // directly after sheetData when an autoFilter exists produces an out-of-order
+        // child list that strict validators reject.
+        var autoFilter = ws.GetFirstChild<AutoFilter>();
+        if (autoFilter != null)
+        {
+            autoFilter.InsertAfterSelf(ss);
+        }
+        else
+        {
+            var sheetData = ws.GetFirstChild<SheetData>();
+            if (sheetData != null) sheetData.InsertAfterSelf(ss);
+            else ws.AppendChild(ss);
+        }
     }
 
     /// <summary>Raw cell value for sorting: resolves SharedString/InlineString, skips number formatting. Precise column-letter match (no prefix bug).</summary>
