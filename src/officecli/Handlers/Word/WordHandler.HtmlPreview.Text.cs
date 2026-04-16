@@ -42,6 +42,7 @@ public partial class WordHandler
     private void RenderParagraphContentHtml(StringBuilder sb, Paragraph para)
     {
         OnHtmlParagraphBegin(para);
+        _ctx.CurrentParagraphTabIndex = 0;
 
         // Render bookmark anchors for internal hyperlink targets
         foreach (var bm in para.Elements<BookmarkStart>())
@@ -236,16 +237,16 @@ public partial class WordHandler
             }
             else if (child is TabChar)
             {
-                // Check for right-aligned tab with dot leader (common in TOC)
+                // Resolve tab stops: direct on paragraph, or via its style
                 var tabs = para.ParagraphProperties?.Tabs?.Elements<TabStop>();
                 if (tabs == null || !tabs.Any())
                 {
                     var tsId = para.ParagraphProperties?.ParagraphStyleId?.Val?.Value;
                     if (tsId != null) tabs = ResolveTabStopsFromStyle(tsId);
                 }
+                // TOC-style special case: any right-aligned tab with dot leader
                 var rightDotTab = tabs?.FirstOrDefault(t =>
-                    t.Val?.Value == TabStopValues.Right &&
-                    t.Leader?.Value == TabStopLeaderCharValues.Dot);
+                    t.Val?.InnerText == "right" && t.Leader?.InnerText == "dot");
                 if (rightDotTab != null)
                 {
                     // Close current span, insert dot leader, then page number follows
@@ -253,7 +254,37 @@ public partial class WordHandler
                     sb.Append("<span class=\"dot-leader\"></span>");
                 }
                 else
-                    sb.Append("&emsp;");
+                {
+                    // General tab: emit inline-block with width = distance to Nth tab stop
+                    // (or default 36pt = 0.5in fallback when no custom stops defined)
+                    var orderedStops = tabs?
+                        .Where(t => t.Val?.InnerText != "clear" && t.Position?.HasValue == true)
+                        .OrderBy(t => t.Position!.Value).ToList();
+                    double widthPt;
+                    int tabIdx = _ctx.CurrentParagraphTabIndex;
+                    if (orderedStops != null && tabIdx < orderedStops.Count)
+                    {
+                        var curPos = orderedStops[tabIdx].Position!.Value / 20.0; // twips → pt
+                        var prevPos = tabIdx > 0 ? orderedStops[tabIdx - 1].Position!.Value / 20.0 : 0;
+                        widthPt = curPos - prevPos;
+                        // Handle tab leader (dot, hyphen, underscore) for positional tabs
+                        var leader = orderedStops[tabIdx].Leader?.InnerText;
+                        var cssLeader = leader switch
+                        {
+                            "dot" => "border-bottom:1px dotted #000;",
+                            "hyphen" => "border-bottom:1px dashed #000;",
+                            "underscore" => "border-bottom:1px solid #000;",
+                            _ => "",
+                        };
+                        sb.Append($"<span style=\"display:inline-block;width:{widthPt:0.##}pt;{cssLeader}\"></span>");
+                    }
+                    else
+                    {
+                        // Default half-inch tab (36pt)
+                        sb.Append("<span style=\"display:inline-block;width:36pt\"></span>");
+                    }
+                    _ctx.CurrentParagraphTabIndex++;
+                }
             }
             else if (child is CarriageReturn)
                 sb.Append("<br>");

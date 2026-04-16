@@ -30,6 +30,10 @@ public partial class WordHandler
         public bool LineBreakEnabled { get; set; }    // whether line-break tracking is active
         public double DefaultFontSizePt { get; set; } // default font size for width estimation
 
+        // Tab positioning: count tabs seen in current paragraph to look up Nth tab stop.
+        // Reset per paragraph in RenderParagraphContentHtml.
+        public int CurrentParagraphTabIndex { get; set; }
+
         public void ResetLineForParagraph(double contentWidthPt, double firstLineIndentPt, double defaultSizePt)
         {
             LineWidthPt = contentWidthPt - firstLineIndentPt;
