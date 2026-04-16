@@ -196,6 +196,9 @@ public partial class WordHandler
         var footerHasPageNum = footerHtml.Contains("PAGE") || !string.IsNullOrEmpty(footerHtml);
         var pageNumPattern = new Regex(@"(<span[^>]*>)\s*\d+\s*(</span>)");
         var footerTemplate = pageNumPattern.Replace(footerHtml, "$1<!--PAGE_NUM-->$2", 1);
+        // Second single-digit match = NUMPAGES in "Page X of Y"
+        var footerTemplateWithTotal = pageNumPattern.Replace(footerTemplate, "$1<!--NUM_PAGES-->$2", 1);
+        footerTemplate = footerTemplateWithTotal;
 
         // Section-level multi-column layout: w:cols num=N sep=true
         var sectCols = _doc.MainDocumentPart?.Document?.Body?.GetFirstChild<SectionProperties>()?.GetFirstChild<Columns>();
@@ -223,7 +226,9 @@ public partial class WordHandler
             if (i == pageList.Count - 1 && !string.IsNullOrEmpty(endnotesHtml))
                 sb.Append(endnotesHtml);
             sb.Append("</div>");
-            sb.Append(footerTemplate.Replace("<!--PAGE_NUM-->", (i + 1).ToString()));
+            sb.Append(footerTemplate
+                .Replace("<!--PAGE_NUM-->", (i + 1).ToString())
+                .Replace("<!--NUM_PAGES-->", pageList.Count.ToString()));
             sb.AppendLine("</div>");
             sb.AppendLine("</div>");
         }
@@ -765,11 +770,10 @@ public partial class WordHandler
             if (headerParts == null) return;
             foreach (var hp in headerParts)
             {
-                var paragraphs = hp.Header?.Elements<Paragraph>().ToList();
-                if (paragraphs == null || paragraphs.Count == 0) continue;
-                if (paragraphs.All(p => string.IsNullOrWhiteSpace(GetParagraphText(p)))) continue;
+                if (hp.Header == null) continue;
+                if (!HeaderFooterHasContent(hp.Header)) continue;
                 sb.AppendLine($"<div class=\"{cssClass}\">");
-                foreach (var para in paragraphs) RenderParagraphHtml(sb, para);
+                RenderHeaderFooterBody(sb, hp.Header);
                 sb.AppendLine("</div>");
                 break;
             }
@@ -780,14 +784,44 @@ public partial class WordHandler
             if (footerParts == null) return;
             foreach (var fp in footerParts)
             {
-                var paragraphs = fp.Footer?.Elements<Paragraph>().ToList();
-                if (paragraphs == null || paragraphs.Count == 0) continue;
-                if (paragraphs.All(p => string.IsNullOrWhiteSpace(GetParagraphText(p)))) continue;
+                if (fp.Footer == null) continue;
+                if (!HeaderFooterHasContent(fp.Footer)) continue;
                 sb.AppendLine($"<div class=\"{cssClass}\">");
-                foreach (var para in paragraphs) RenderParagraphHtml(sb, para);
+                RenderHeaderFooterBody(sb, fp.Footer);
                 sb.AppendLine("</div>");
                 break;
             }
+        }
+    }
+
+    /// <summary>Returns true if the header/footer has any visible content:
+    /// text, table, image/drawing, or field.</summary>
+    private static bool HeaderFooterHasContent(OpenXmlElement hf)
+    {
+        foreach (var child in hf.ChildElements)
+        {
+            if (child is Table) return true;
+            if (child is Paragraph p)
+            {
+                if (!string.IsNullOrWhiteSpace(p.InnerText)) return true;
+                if (p.Descendants<Drawing>().Any()) return true;
+                if (p.Descendants<FieldChar>().Any() || p.Descendants<SimpleField>().Any()) return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>Iterate header/footer children in order, rendering paragraphs
+    /// and tables. Previously only paragraphs were emitted, dropping layout
+    /// tables and image-only paragraphs.</summary>
+    private void RenderHeaderFooterBody(StringBuilder sb, OpenXmlElement hf)
+    {
+        foreach (var child in hf.ChildElements)
+        {
+            if (child is Paragraph para)
+                RenderParagraphHtml(sb, para);
+            else if (child is Table tbl)
+                RenderTableHtml(sb, tbl);
         }
     }
 
