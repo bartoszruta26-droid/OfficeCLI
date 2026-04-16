@@ -178,6 +178,20 @@ public partial class WordHandler
             }
             if (properties.TryGetValue("dstrike", out var pDstrike) && IsTruthy(pDstrike))
                 rProps.DoubleStrike = new DoubleStrike();
+            if (properties.TryGetValue("vanish", out var pVanish) && IsTruthy(pVanish))
+                rProps.Vanish = new Vanish();
+            if (properties.TryGetValue("outline", out var pOutline) && IsTruthy(pOutline))
+                rProps.Outline = new Outline();
+            if (properties.TryGetValue("shadow", out var pShadow) && IsTruthy(pShadow))
+                rProps.Shadow = new Shadow();
+            if (properties.TryGetValue("emboss", out var pEmboss) && IsTruthy(pEmboss))
+                rProps.Emboss = new Emboss();
+            if (properties.TryGetValue("imprint", out var pImprint) && IsTruthy(pImprint))
+                rProps.Imprint = new Imprint();
+            if (properties.TryGetValue("noproof", out var pNoProof) && IsTruthy(pNoProof))
+                rProps.NoProof = new NoProof();
+            if (properties.TryGetValue("rtl", out var pRtl) && IsTruthy(pRtl))
+                rProps.RightToLeftText = new RightToLeftText();
             if (properties.TryGetValue("vertAlign", out var pVertAlign) || properties.TryGetValue("vertalign", out pVertAlign))
             {
                 rProps.VerticalTextAlignment = new VerticalTextAlignment

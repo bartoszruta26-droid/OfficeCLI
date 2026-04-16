@@ -703,18 +703,38 @@ public partial class WordHandler
         if (rProps.Italic != null && (rProps.Italic.Val == null || rProps.Italic.Val.Value))
             parts.Add("font-style:italic");
 
-        // Underline
+        // Underline: map OOXML variants to CSS text-decoration-style / thickness.
+        // OOXML vals: single, double, thick, dotted, dottedHeavy, dash, dashedHeavy,
+        //   dashLong, dashLongHeavy, dotDash, dotDashHeavy, dotDotDash, dotDotDashHeavy,
+        //   wave, wavyHeavy, wavyDouble, words, none
         if (rProps.Underline?.Val != null)
         {
             var ulVal = rProps.Underline.Val.InnerText;
             if (ulVal != "none")
+            {
                 parts.Add("text-decoration:underline");
+                // Map to text-decoration-style
+                string? style = ulVal switch
+                {
+                    "double" or "wavyDouble" => "double",
+                    "dotted" or "dottedHeavy" => "dotted",
+                    "dash" or "dashedHeavy" or "dashLong" or "dashLongHeavy"
+                        or "dotDash" or "dotDashHeavy" or "dotDotDash" or "dotDotDashHeavy" => "dashed",
+                    "wave" or "wavyHeavy" => "wavy",
+                    _ => null,
+                };
+                if (style != null)
+                    parts.Add($"text-decoration-style:{style}");
+                // Thickness: "thick" and any *Heavy variant
+                if (ulVal == "thick" || ulVal.EndsWith("Heavy"))
+                    parts.Add("text-decoration-thickness:2px");
+            }
         }
 
         // Strikethrough (single or double)
-        var hasStrike = (rProps.Strike != null && (rProps.Strike.Val == null || rProps.Strike.Val.Value))
-            || (rProps.DoubleStrike != null && (rProps.DoubleStrike.Val == null || rProps.DoubleStrike.Val.Value));
-        if (hasStrike)
+        var hasSingleStrike = rProps.Strike != null && (rProps.Strike.Val == null || rProps.Strike.Val.Value);
+        var hasDoubleStrike = rProps.DoubleStrike != null && (rProps.DoubleStrike.Val == null || rProps.DoubleStrike.Val.Value);
+        if (hasSingleStrike || hasDoubleStrike)
         {
             var existing = parts.FirstOrDefault(p => p.StartsWith("text-decoration:"));
             if (existing != null)
@@ -726,6 +746,17 @@ public partial class WordHandler
             {
                 parts.Add("text-decoration:line-through");
             }
+            // Double-strike renders via text-decoration-style: double (CSS3, broad support)
+            if (hasDoubleStrike)
+                parts.Add("text-decoration-style:double");
+        }
+
+        // Character spacing (w:spacing val in twips = 1/20 pt, can be negative)
+        if (rProps.Spacing?.Val?.HasValue == true)
+        {
+            var sp = rProps.Spacing.Val.Value;
+            if (sp != 0)
+                parts.Add($"letter-spacing:{sp / 20.0:0.##}pt");
         }
 
         // Color: w:color val is the pre-computed color (already has themeColor+themeTint applied).

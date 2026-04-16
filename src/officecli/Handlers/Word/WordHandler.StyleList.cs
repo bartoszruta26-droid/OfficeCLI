@@ -135,6 +135,36 @@ public partial class WordHandler
         if (srcShd != null)
             target.Shading = srcShd.CloneNode(true) as Shading;
 
+        // Character spacing (w:spacing val in twips) — letter-spacing CSS equivalent
+        var srcSpacing = source.GetFirstChild<Spacing>();
+        if (srcSpacing != null)
+            target.Spacing = srcSpacing.CloneNode(true) as Spacing;
+
+        // Rendering effects: outline, shadow, emboss, imprint
+        var srcOutline = source.GetFirstChild<Outline>();
+        if (srcOutline != null)
+            target.Outline = srcOutline.CloneNode(true) as Outline;
+
+        var srcShadow = source.GetFirstChild<Shadow>();
+        if (srcShadow != null)
+            target.Shadow = srcShadow.CloneNode(true) as Shadow;
+
+        var srcEmboss = source.GetFirstChild<Emboss>();
+        if (srcEmboss != null)
+            target.Emboss = srcEmboss.CloneNode(true) as Emboss;
+
+        var srcImprint = source.GetFirstChild<Imprint>();
+        if (srcImprint != null)
+            target.Imprint = srcImprint.CloneNode(true) as Imprint;
+
+        var srcVanish = source.GetFirstChild<Vanish>();
+        if (srcVanish != null)
+            target.Vanish = srcVanish.CloneNode(true) as Vanish;
+
+        var srcNoProof = source.GetFirstChild<NoProof>();
+        if (srcNoProof != null)
+            target.NoProof = srcNoProof.CloneNode(true) as NoProof;
+
         var srcBdr = source.GetFirstChild<Border>();
         if (srcBdr != null)
         {
