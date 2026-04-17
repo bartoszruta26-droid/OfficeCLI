@@ -292,6 +292,14 @@ static partial class CommandBuilder
                 if (!ResidentClient.TryConnect(filePath, out _))
                     return null; // truly no resident → caller falls back to direct file access
             }
+            // Intentionally no user-facing hint here. UX testing with an AI
+            // agent showed a standalone "background process" hint on a random
+            // mid-batch command (e.g. `get`) creates low-grade anxiety without
+            // giving the caller a concrete action — auto-close in 60s already
+            // handles the cleanup, and other officecli commands work normally
+            // through the resident regardless. The `create` command keeps a
+            // small inline suffix on its success line because it's contextual
+            // to a freshly-created file, not a nag fired from anywhere.
         }
 
         var request = new ResidentRequest();
