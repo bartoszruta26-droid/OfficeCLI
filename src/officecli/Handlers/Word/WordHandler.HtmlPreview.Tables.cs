@@ -161,7 +161,10 @@ public partial class WordHandler
             var trStyle = "";
             if (trHeight?.Val?.Value is uint hVal && hVal > 0)
                 trStyle = $" style=\"height:{hVal / 20.0:0.#}pt\"";
-            sb.AppendLine(isHeader ? $"<tr class=\"header-row\"{trStyle}>" : $"<tr{trStyle}>");
+            // #7b00: mark tblHeader rows so the JS paginator can clone them
+            // onto every continuation page when a long table spans pages.
+            var hdrMarker = isHeader ? " data-tbl-header=\"1\"" : "";
+            sb.AppendLine(isHeader ? $"<tr class=\"header-row\"{hdrMarker}{trStyle}>" : $"<tr{trStyle}>");
 
             int colIdx = 0;
             foreach (var cell in row.Elements<TableCell>())

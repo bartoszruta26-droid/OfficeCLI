@@ -388,6 +388,41 @@ public partial class WordHandler
         if(bot>availH){splitIdx=ci;break;}
       }
       if(splitIdx<0)continue;
+      // #7b00: when the overflowing child is a <table>, split it at the
+      // row boundary and clone any rows carrying data-tbl-header=""1""
+      // onto the continuation so long tables have repeating headers
+      // across pages the way Word renders them.
+      var firstOverflow=children[splitIdx];
+      if(firstOverflow&&firstOverflow.tagName==='TABLE'){
+        var table=firstOverflow;
+        var tableTop=table.offsetTop-body.offsetTop;
+        var trs=Array.from(table.querySelectorAll('tr'));
+        var hdrRows=trs.filter(function(tr){return tr.getAttribute('data-tbl-header')==='1';});
+        // Find first row whose bottom exceeds availH (relative to body).
+        var rowSplit=-1;
+        for(var ri=0;ri<trs.length;ri++){
+          if(trs[ri].getAttribute('data-tbl-header')==='1')continue;
+          var rowBot=trs[ri].offsetTop+trs[ri].offsetHeight-body.offsetTop;
+          if(rowBot>availH){rowSplit=ri;break;}
+        }
+        if(rowSplit>0){
+          // Build continuation table; clone attributes + header rows.
+          var cont=table.cloneNode(false);
+          var tbodies=table.querySelectorAll('tbody');
+          var contBody=tbodies.length?document.createElement('tbody'):cont;
+          if(tbodies.length)cont.appendChild(contBody);
+          hdrRows.forEach(function(h){contBody.appendChild(h.cloneNode(true));});
+          for(var rj=rowSplit;rj<trs.length;rj++){
+            if(trs[rj].getAttribute('data-tbl-header')==='1')continue;
+            contBody.appendChild(trs[rj]);
+          }
+          // Insert continuation as new sibling after the source table so
+          // the split-point logic below moves it to a new page.
+          table.parentNode.insertBefore(cont,table.nextSibling);
+          children=Array.from(body.children);
+          splitIdx=children.indexOf(cont);
+        }
+      }
       // When the first child itself exceeds page height, keep it on this
       // page and split after, so the oversized element is not silently
       // dropped by being moved to a new (still-oversized) page.
