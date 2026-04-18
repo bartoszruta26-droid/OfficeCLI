@@ -20,11 +20,42 @@ public partial class ExcelHandler
     /// free of inline extension boilerplate.
     /// </summary>
     private static XDR.BlipFill BuildPictureBlipFill(string pngRelId, string? svgRelId)
+        => BuildPictureBlipFill(pngRelId, svgRelId, null);
+
+    private static XDR.BlipFill BuildPictureBlipFill(
+        string pngRelId, string? svgRelId, Dictionary<string, string>? properties)
     {
         var blip = new Drawing.Blip { Embed = pngRelId };
+        // P6: opacity → <a:alphaModFix amt="N"/> (0..100000 scale).
+        // Accept percent (50, "50%") or fraction (0.5). 100/100%/1.0 → opaque (no node).
+        if (properties != null
+            && properties.TryGetValue("opacity", out var opRaw)
+            && !string.IsNullOrWhiteSpace(opRaw))
+        {
+            var amt = ParseOpacityAmt(opRaw);
+            if (amt.HasValue && amt.Value < 100000)
+                blip.AppendChild(new Drawing.AlphaModulationFixed { Amount = amt.Value });
+        }
         if (!string.IsNullOrEmpty(svgRelId))
             OfficeCli.Core.SvgImageHelper.AppendSvgExtension(blip, svgRelId);
         return new XDR.BlipFill(blip, new Drawing.Stretch(new Drawing.FillRectangle()));
+    }
+
+    // Parse opacity percent/fraction to OOXML alphaModFix amt scale (0..100000).
+    // Returns null if the input is not parseable; 100000 (fully opaque) is returned
+    // as-is so the caller can decide to omit the node.
+    internal static int? ParseOpacityAmt(string raw)
+    {
+        var t = raw.Trim();
+        if (t.EndsWith("%")) t = t[..^1].Trim();
+        if (!double.TryParse(t, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var v))
+            return null;
+        if (double.IsNaN(v) || double.IsInfinity(v)) return null;
+        // Fraction form (0..1) → treat as 0..100%; else percent.
+        double pct = v <= 1.0 && v > 0 ? v * 100.0 : v;
+        if (pct < 0) pct = 0; if (pct > 100) pct = 100;
+        return (int)Math.Round(pct * 1000.0);
     }
 
     // Build an <xdr:pic> element with an initial Transform2D, applying any
@@ -135,7 +166,7 @@ public partial class ExcelHandler
                 cNvPr,
                 new XDR.NonVisualPictureDrawingProperties(new Drawing.PictureLocks { NoChangeAspect = true })
             ),
-            BuildPictureBlipFill(imgRelId, svgRelId),
+            BuildPictureBlipFill(imgRelId, svgRelId, properties),
             new XDR.ShapeProperties(
                 xfrm,
                 new Drawing.PresetGeometry(new Drawing.AdjustValueList()) { Preset = Drawing.ShapeTypeValues.Rectangle }
