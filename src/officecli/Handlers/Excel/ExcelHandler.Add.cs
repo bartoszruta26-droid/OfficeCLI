@@ -1932,6 +1932,45 @@ public partial class ExcelHandler
                 var endColIdx = ColumnNameToIndex(endCol);
                 var colCount = endColIdx - startColIdx + 1;
 
+                // T5-ext: autoExpand=true probes the sheet for contiguous
+                // non-empty rows immediately below the declared ref and grows
+                // endRow to include them. Mirrors Excel's "Table expand when
+                // you type below" behavior at Add time.
+                if (properties.TryGetValue("autoExpand", out var autoExpandRaw) && IsTruthy(autoExpandRaw))
+                {
+                    var sheetDataForProbe = GetSheet(tblWorksheet).GetFirstChild<SheetData>();
+                    if (sheetDataForProbe != null)
+                    {
+                        int probeRow = endRow + 1;
+                        while (true)
+                        {
+                            var probe = sheetDataForProbe.Elements<Row>()
+                                .FirstOrDefault(r => r.RowIndex?.Value == (uint)probeRow);
+                            if (probe == null) break;
+                            // non-empty = at least one cell in the column
+                            // span carries a CellValue or InlineString.
+                            bool anyNonEmpty = false;
+                            for (int ci = 0; ci < colCount; ci++)
+                            {
+                                var cLetter = IndexToColumnName(startColIdx + ci);
+                                var cRef = $"{cLetter}{probeRow}";
+                                var probeCell = probe.Elements<Cell>()
+                                    .FirstOrDefault(c => c.CellReference?.Value == cRef);
+                                if (probeCell == null) continue;
+                                if (probeCell.CellValue != null || probeCell.InlineString != null)
+                                {
+                                    anyNonEmpty = true;
+                                    break;
+                                }
+                            }
+                            if (!anyNonEmpty) break;
+                            endRow = probeRow;
+                            probeRow++;
+                        }
+                        rangeRef = $"{startCol}{startRow}:{endCol}{endRow}";
+                    }
+                }
+
                 // CONSISTENCY(table-totalrow): a:totalsRowShown MUST point at a row
                 // OUTSIDE the data area. Previously we reused endRow as the totals
                 // row, which overwrote whatever data lived on that last row. Expand
@@ -2020,6 +2059,26 @@ public partial class ExcelHandler
                 for (int i = 0; i < colCount; i++)
                     tableColumns.AppendChild(new TableColumn { Id = (uint)(i + 1), Name = colNames[i] });
                 table.AppendChild(tableColumns);
+
+                // T7-ext: `columns.N.dxfId=<id>` stamps dataDxfId on the
+                // target tableColumn (N is 1-based). The id must reference
+                // an existing workbook differentialFormats entry; we do not
+                // synthesize new dxfs here — users who want inline style
+                // values should register a dxf first via `add dxf` (or the
+                // underlying APIs) and then reference it.
+                var tblColList = tableColumns.Elements<TableColumn>().ToList();
+                foreach (var (rawKey, rawVal) in properties)
+                {
+                    var m = Regex.Match(rawKey, @"^columns?\.(\d+)\.dxfId$",
+                        RegexOptions.IgnoreCase);
+                    if (!m.Success) continue;
+                    var n = int.Parse(m.Groups[1].Value);
+                    if (n < 1 || n > tblColList.Count) continue;
+                    if (!uint.TryParse(rawVal, out var dxfId))
+                        throw new ArgumentException(
+                            $"columns.{n}.dxfId requires a numeric dxf id, got: '{rawVal}'");
+                    tblColList[n - 1].DataFormatId = dxfId;
+                }
 
                 // T2 — wire the banded rows/columns + first/last column
                 // flags onto the TableStyleInfo. Each accepts `showX` or
