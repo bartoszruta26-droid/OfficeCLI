@@ -701,6 +701,102 @@ public partial class ExcelHandler
                 }
                 autoFilter.Reference = afRange.ToUpperInvariant();
 
+                // AF1: per-column criteria. Syntax: criteriaN.OP=VAL where
+                // N is 0-based column offset from the filter range's
+                // leftmost column and OP is one of:
+                //   equals, contains, gt, lt, top, blanks, nonBlanks
+                // Each distinct N builds one <x:filterColumn colId="N">.
+                // Previous criteria for the same N are replaced.
+                var criteriaGroups = new Dictionary<uint, List<(string op, string val)>>();
+                foreach (var (k, v) in properties)
+                {
+                    var cm = Regex.Match(k, @"^criteria(\d+)\.([A-Za-z]+)$");
+                    if (!cm.Success) continue;
+                    var colId = uint.Parse(cm.Groups[1].Value);
+                    var op = cm.Groups[2].Value.ToLowerInvariant();
+                    if (!criteriaGroups.TryGetValue(colId, out var list))
+                        criteriaGroups[colId] = list = new List<(string, string)>();
+                    list.Add((op, v));
+                }
+                // Strip any prior filterColumn entries so a re-Add is idempotent
+                foreach (var fc in autoFilter.Elements<FilterColumn>().ToList())
+                    fc.Remove();
+                foreach (var (colId, entries) in criteriaGroups.OrderBy(kv => kv.Key))
+                {
+                    var filterColumn = new FilterColumn { ColumnId = colId };
+                    // Dispatch by operator family. Top-N and Blanks build
+                    // dedicated child elements; text/number ops feed into
+                    // <customFilters>.
+                    var customEntries = new List<(FilterOperatorValues fop, string val)>();
+                    bool handledTopOrBlanks = false;
+                    foreach (var (op, rawVal) in entries)
+                    {
+                        switch (op)
+                        {
+                            case "equals":
+                                customEntries.Add((FilterOperatorValues.Equal, rawVal));
+                                break;
+                            case "contains":
+                                // Excel "contains" is a wildcard equals match
+                                // against *val*. Wrap bare values; leave
+                                // pre-wildcarded input alone.
+                                var wild = rawVal.Contains('*') ? rawVal : $"*{rawVal}*";
+                                customEntries.Add((FilterOperatorValues.Equal, wild));
+                                break;
+                            case "gt":
+                                customEntries.Add((FilterOperatorValues.GreaterThan, rawVal));
+                                break;
+                            case "lt":
+                                customEntries.Add((FilterOperatorValues.LessThan, rawVal));
+                                break;
+                            case "top":
+                            {
+                                if (!double.TryParse(rawVal, System.Globalization.NumberStyles.Any,
+                                        System.Globalization.CultureInfo.InvariantCulture, out var topN))
+                                    throw new ArgumentException(
+                                        $"criteria{colId}.top requires a numeric value, got: '{rawVal}'");
+                                filterColumn.Top10 = new Top10
+                                {
+                                    Top = true,
+                                    Percent = false,
+                                    Val = topN
+                                };
+                                handledTopOrBlanks = true;
+                                break;
+                            }
+                            case "blanks":
+                                if (IsTruthy(rawVal))
+                                {
+                                    filterColumn.Filters = new Filters { Blank = true };
+                                    handledTopOrBlanks = true;
+                                }
+                                break;
+                            case "nonblanks":
+                                if (IsTruthy(rawVal))
+                                {
+                                    // nonBlanks = "<> empty string" custom filter
+                                    customEntries.Add((FilterOperatorValues.NotEqual, ""));
+                                }
+                                break;
+                            default:
+                                throw new ArgumentException(
+                                    $"Unsupported criteria operator: '{op}'. Valid: equals, contains, gt, lt, top, blanks, nonBlanks.");
+                        }
+                    }
+                    if (customEntries.Count > 0 && !handledTopOrBlanks)
+                    {
+                        var cf = new CustomFilters();
+                        foreach (var (fop, val) in customEntries)
+                            cf.AppendChild(new CustomFilter
+                            {
+                                Operator = fop,
+                                Val = val
+                            });
+                        filterColumn.CustomFilters = cf;
+                    }
+                    autoFilter.AppendChild(filterColumn);
+                }
+
                 SaveWorksheet(afWorksheet);
                 return $"/{afSheetName}/autofilter";
             }
